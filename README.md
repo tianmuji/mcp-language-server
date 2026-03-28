@@ -47,7 +47,7 @@ echo '你的cookie值' > ~/mcp-language-server/.cookie
 echo '你的csrf-token值' > ~/mcp-language-server/.csrf-token
 ```
 
-> Cookie 会过期，过期后重新执行上述步骤更新即可。
+> Cookie 一般一天后过期，过期后参考下方「更新 Cookie」章节。
 
 #### 3. 安装插件
 
@@ -92,6 +92,37 @@ claude plugin install i18n
 | 47 | CS PDF |
 | 53 | CS Harmony |
 
+## 更新 Cookie
+
+Cookie 一般一天后过期，过期后有两种方式更新：
+
+### 方式一：传入 curl 命令（推荐）
+
+浏览器 DevTools → Network → 右键请求 → Copy as cURL，然后：
+
+```bash
+bash ~/mcp-language-server/update-cookie.sh '粘贴整个curl命令'
+```
+
+脚本会自动从 curl 命令中提取 Cookie 和 CSRF Token。
+
+### 方式二：手动输入
+
+```bash
+bash ~/mcp-language-server/update-cookie.sh
+```
+
+按提示粘贴 Cookie 和 X-CSRF-Token 值。
+
+### 方式三：直接编辑文件
+
+```bash
+echo '新的cookie' > ~/mcp-language-server/.cookie
+echo '新的csrf-token' > ~/mcp-language-server/.csrf-token
+```
+
+更新后**重启 Claude Code** 生效。
+
 ## 项目结构
 
 ```
@@ -108,6 +139,7 @@ mcp-language-server/
 │               └── SKILL.md  # /i18n Skill 定义
 ├── index.js                # MCP Server 主文件
 ├── setup.sh                # 一键安装脚本
+├── update-cookie.sh        # Cookie 快速更新脚本
 ├── package.json
 ├── .cookie                 # Cookie 认证文件（不提交）
 ├── .csrf-token             # CSRF Token 文件（不提交）
