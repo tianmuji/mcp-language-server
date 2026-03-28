@@ -1,0 +1,22 @@
+{
+  "name": "mcp-language-server",
+  "version": "1.0.0",
+  "description": "MCP Server for multi-language string management",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "mcp-language-server": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "express": "^5.2.1",
+    "node-fetch": "^3.3.2",
+    "zod": "^4.3.6"
+  }
+}

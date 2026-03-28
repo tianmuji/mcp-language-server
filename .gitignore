@@ -1,0 +1,5 @@
+node_modules/
+.cookie
+.csrf-token
+.curl-request.sh
+mcp-server.log
