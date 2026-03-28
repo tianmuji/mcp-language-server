@@ -21,10 +21,7 @@ if [ -d "$MCP_SERVER_DIR" ]; then
   git pull 2>/dev/null || echo "  非 git 仓库，跳过更新"
 else
   echo "  克隆仓库..."
-  # TODO: 替换为实际的 git 仓库地址
-  # git clone https://your-git-repo/mcp-language-server.git "$MCP_SERVER_DIR"
-  mkdir -p "$MCP_SERVER_DIR"
-  echo "  请手动将 mcp-language-server 项目复制到 $MCP_SERVER_DIR"
+  git clone git@github.com:tianmuji/mcp-language-server.git "$MCP_SERVER_DIR"
 fi
 
 cd "$MCP_SERVER_DIR"
