@@ -1,6 +1,6 @@
 # CamScanner i18n MCP Language Server
 
-用于 Claude Code 的多语言字符串管理 MCP Server，支持从 CamScanner 运营平台搜索、导出、写入多语言字符串。
+用于 Claude Code 的多语言字符串管理插件，支持从 CamScanner 运营平台搜索、导出、写入多语言字符串。
 
 ## 功能
 
@@ -24,13 +24,13 @@ bash setup.sh
 安装脚本会自动完成：
 1. 安装 npm 依赖
 2. 交互式配置 Cookie 和 CSRF Token
-3. 注册 MCP Server 到 `~/.claude/.mcp.json`
-4. 安装 i18n Plugin（含 `/i18n` Skill）
-5. 启用插件
+3. 安装 i18n Plugin（自动注册 MCP Server + `/i18n` Skill）
 
 安装完成后**重启 Claude Code** 即可使用。
 
 ### 手动安装
+
+#### 1. 克隆仓库 & 安装依赖
 
 ```bash
 git clone git@github.com:tianmuji/mcp-language-server.git ~/mcp-language-server
@@ -38,29 +38,9 @@ cd ~/mcp-language-server
 npm install
 ```
 
-然后在 `~/.claude/.mcp.json` 中添加：
+#### 2. 配置认证
 
-```json
-{
-  "mcpServers": {
-    "language": {
-      "command": "node",
-      "args": ["/Users/你的用户名/mcp-language-server/index.js"]
-    }
-  }
-}
-```
-
-## 配置认证
-
-MCP Server 通过 Cookie 访问运营平台 API，需要手动配置：
-
-1. 浏览器打开 https://operate-test.intsig.net/multilanguage
-2. 登录后打开 DevTools → Network
-3. 做一次搜索操作，找到 `get-string-search` 请求
-4. 从请求头中提取 Cookie 和 X-CSRF-Token
-
-将值写入文件：
+浏览器打开 https://operate-test.intsig.net/multilanguage ，登录后打开 DevTools → Network，做一次搜索操作，找到 `get-string-search` 请求，从请求头中提取 Cookie 和 X-CSRF-Token：
 
 ```bash
 echo '你的cookie值' > ~/mcp-language-server/.cookie
@@ -68,6 +48,17 @@ echo '你的csrf-token值' > ~/mcp-language-server/.csrf-token
 ```
 
 > Cookie 会过期，过期后重新执行上述步骤更新即可。
+
+#### 3. 安装插件
+
+```bash
+claude plugin marketplace add tianmuji/mcp-language-server --sparse plugins .claude-plugin
+claude plugin install i18n
+```
+
+插件安装后会自动注册 MCP Server 和 `/i18n` Skill，无需手动编辑 `~/.claude/.mcp.json`。
+
+#### 4. 重启 Claude Code
 
 ## 使用方式
 
@@ -105,11 +96,21 @@ echo '你的csrf-token值' > ~/mcp-language-server/.csrf-token
 
 ```
 mcp-language-server/
-├── index.js          # MCP Server 主文件
-├── setup.sh          # 一键安装脚本
+├── .claude-plugin/
+│   └── marketplace.json    # Marketplace 配置
+├── plugins/
+│   └── i18n/
+│       ├── .claude-plugin/
+│       │   └── plugin.json # 插件元数据
+│       ├── .mcp.json       # MCP Server 自动注册配置
+│       └── skills/
+│           └── i18n/
+│               └── SKILL.md  # /i18n Skill 定义
+├── index.js                # MCP Server 主文件
+├── setup.sh                # 一键安装脚本
 ├── package.json
-├── .cookie           # Cookie 认证文件（不提交）
-├── .csrf-token       # CSRF Token 文件（不提交）
+├── .cookie                 # Cookie 认证文件（不提交）
+├── .csrf-token             # CSRF Token 文件（不提交）
 └── .gitignore
 ```
 
