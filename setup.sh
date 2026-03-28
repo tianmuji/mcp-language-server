@@ -8,10 +8,9 @@ echo ""
 
 # ---- 配置 ----
 MCP_SERVER_DIR="$HOME/mcp-language-server"
-MCP_JSON="$HOME/.claude/.mcp.json"
 
 # ---- 1. 安装 MCP Server ----
-echo "[1/4] 安装 MCP Language Server..."
+echo "[1/3] 安装 MCP Language Server..."
 if [ -d "$MCP_SERVER_DIR" ]; then
   echo "  目录已存在，更新中..."
   cd "$MCP_SERVER_DIR"
@@ -30,7 +29,7 @@ fi
 
 # ---- 2. 配置 Cookie ----
 echo ""
-echo "[2/4] 配置认证信息..."
+echo "[2/3] 配置认证信息..."
 if [ ! -f "$MCP_SERVER_DIR/.cookie" ]; then
   echo ""
   echo "  需要配置 Cookie 才能访问多语言平台。"
@@ -61,56 +60,9 @@ else
   echo "  Cookie 已存在，跳过"
 fi
 
-# ---- 3. 注册 MCP Server ----
+# ---- 3. 安装 i18n Plugin (自动注册 MCP Server + /i18n Skill) ----
 echo ""
-echo "[3/4] 注册 MCP Server 到 Claude Code..."
-mkdir -p "$HOME/.claude"
-
-if [ -f "$MCP_JSON" ]; then
-  # 检查是否已注册
-  if grep -q '"language"' "$MCP_JSON" 2>/dev/null; then
-    echo "  MCP Server 已注册，跳过"
-  else
-    # 合并到已有配置
-    node -e "
-      const fs = require('fs');
-      const data = JSON.parse(fs.readFileSync('$MCP_JSON', 'utf-8'));
-      data.mcpServers = data.mcpServers || {};
-      data.mcpServers.language = {
-        command: 'node',
-        args: ['$MCP_SERVER_DIR/index.js'],
-        env: {
-          OPERATE_BASE_URL: 'https://operate-test.intsig.net',
-          OPERATE_COOKIE: '',
-          OPERATE_CSRF_TOKEN: ''
-        }
-      };
-      fs.writeFileSync('$MCP_JSON', JSON.stringify(data, null, 2) + '\n');
-    "
-    echo "  MCP Server 已注册"
-  fi
-else
-  cat > "$MCP_JSON" << EOF
-{
-  "mcpServers": {
-    "language": {
-      "command": "node",
-      "args": ["$MCP_SERVER_DIR/index.js"],
-      "env": {
-        "OPERATE_BASE_URL": "https://operate-test.intsig.net",
-        "OPERATE_COOKIE": "",
-        "OPERATE_CSRF_TOKEN": ""
-      }
-    }
-  }
-}
-EOF
-  echo "  MCP Server 已注册"
-fi
-
-# ---- 4. 安装 i18n Plugin (via marketplace) ----
-echo ""
-echo "[4/4] 安装 i18n Plugin..."
+echo "[3/3] 安装 i18n Plugin..."
 
 # 添加 marketplace
 if claude plugin marketplace list 2>&1 | grep -q "camscanner-plugins"; then
