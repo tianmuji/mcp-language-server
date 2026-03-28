@@ -1,0 +1,11 @@
+{
+  "language": {
+    "command": "node",
+    "args": ["${HOME}/mcp-language-server/index.js"],
+    "env": {
+      "OPERATE_BASE_URL": "https://operate-test.intsig.net",
+      "OPERATE_COOKIE": "",
+      "OPERATE_CSRF_TOKEN": ""
+    }
+  }
+}
