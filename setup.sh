@@ -108,17 +108,24 @@ EOF
   echo "  MCP Server 已注册"
 fi
 
-# ---- 4. 安装 /i18n 命令 ----
+# ---- 4. 安装 i18n Plugin (via marketplace) ----
 echo ""
-echo "[4/4] 安装 /i18n slash command..."
-COMMANDS_DIR="$HOME/.claude/commands"
-mkdir -p "$COMMANDS_DIR"
+echo "[4/4] 安装 i18n Plugin..."
 
-if [ -f "$MCP_SERVER_DIR/i18n-command.md" ]; then
-  cp "$MCP_SERVER_DIR/i18n-command.md" "$COMMANDS_DIR/i18n.md"
-  echo "  /i18n 命令已安装"
+# 添加 marketplace
+if claude plugin marketplace list 2>&1 | grep -q "camscanner-plugins"; then
+  echo "  Marketplace 已注册，跳过"
 else
-  echo "  警告: 未找到 i18n-command.md，跳过命令安装"
+  echo "  注册 marketplace..."
+  claude plugin marketplace add tianmuji/mcp-language-server --sparse plugins .claude-plugin 2>&1
+fi
+
+# 安装插件
+if claude plugin list 2>&1 | grep -q "i18n@camscanner-plugins"; then
+  echo "  Plugin 已安装，跳过"
+else
+  echo "  安装插件..."
+  claude plugin install i18n 2>&1
 fi
 
 # ---- 完成 ----
