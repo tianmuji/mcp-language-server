@@ -3,9 +3,9 @@
     "command": "node",
     "args": ["${HOME}/mcp-language-server/index.js"],
     "env": {
-      "OPERATE_BASE_URL": "https://operate-test.intsig.net",
-      "SSO_LOGIN_URL": "https://web-sso-sandbox.intsig.net/login",
-      "SSO_PLATFORM_ID": "QlCcDew3su0CA5eHRe20x61oTfeYvlmV",
+      "OPERATE_BASE_URL": "https://operate.intsig.net",
+      "SSO_LOGIN_URL": "https://web-sso.intsig.net/login",
+      "SSO_PLATFORM_ID": "OdliDeAnVtlUA5cGwwxZPHUyXtqPCcNw",
       "SSO_CALLBACK_DOMAIN": "http://yapi-mcp-auth.camscanner.com:9877",
       "SSO_CALLBACK_PORT": "9877"
     }
