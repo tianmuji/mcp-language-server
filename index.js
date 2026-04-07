@@ -5,15 +5,208 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import http from "node:http";
+import https from "node:https";
 import fs from "node:fs";
 import nodePath from "node:path";
-import { execSync } from "node:child_process";
+import { execSync, exec } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { URL } from "node:url";
 
 // 脚本所在目录
 const __dirname = nodePath.dirname(fileURLToPath(import.meta.url));
 
-// 从文件读取（每次请求时动态读取，支持热更新）
+// ==================== SSO 认证模块 ====================
+
+const CREDENTIALS_DIR = nodePath.join(
+  process.env.HOME || process.env.USERPROFILE || "/tmp",
+  ".language-mcp"
+);
+const CREDENTIALS_FILE = nodePath.join(CREDENTIALS_DIR, "credentials.json");
+
+// SSO 配置（从环境变量读取）
+const SSO_LOGIN_URL = process.env.SSO_LOGIN_URL || "https://web-sso-sandbox.intsig.net/login";
+const SSO_PLATFORM_ID = process.env.SSO_PLATFORM_ID || "QlCcDew3su0CA5eHRe20x61oTfeYvlmV";
+const SSO_CALLBACK_DOMAIN = process.env.SSO_CALLBACK_DOMAIN || "http://yapi-mcp-auth.camscanner.com:9877";
+const SSO_CALLBACK_PORT = parseInt(process.env.SSO_CALLBACK_PORT || "9877", 10);
+
+/** Load saved credentials from disk */
+function loadCredentials() {
+  try {
+    if (!fs.existsSync(CREDENTIALS_FILE)) return null;
+    const data = JSON.parse(fs.readFileSync(CREDENTIALS_FILE, "utf-8"));
+    if (data.expiresAt && Date.now() < data.expiresAt) return data;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Save credentials to disk */
+function saveCredentials(creds) {
+  if (!fs.existsSync(CREDENTIALS_DIR)) {
+    fs.mkdirSync(CREDENTIALS_DIR, { recursive: true });
+  }
+  fs.writeFileSync(CREDENTIALS_FILE, JSON.stringify(creds, null, 2));
+}
+
+/** Clear saved credentials */
+function clearCredentials() {
+  try { if (fs.existsSync(CREDENTIALS_FILE)) fs.unlinkSync(CREDENTIALS_FILE); } catch {}
+}
+
+/** Fetch CSRF token from operate platform using sso_token */
+function fetchCsrfToken(baseUrl, ssoToken) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(baseUrl + "/site/get-config");
+    const mod = url.protocol === "https:" ? https : http;
+    const options = {
+      timeout: 10000,
+      headers: {
+        Cookie: `sso_token=${ssoToken}`,
+        "x-requested-with": "XMLHttpRequest",
+      },
+    };
+    const req = mod.get(url.toString(), options, (res) => {
+      // Extract _csrf from Set-Cookie
+      const cookies = res.headers["set-cookie"] || [];
+      let csrf = "";
+      for (const c of cookies) {
+        const m = c.match(/^_csrf=([^;]*)/);
+        if (m) { csrf = m[1]; break; }
+      }
+      let body = "";
+      res.on("data", (chunk) => (body += chunk));
+      res.on("end", () => {
+        // Also try to extract csrf from response body (Yii2 meta tag)
+        if (!csrf) {
+          const bodyMatch = body.match(/csrf[_-]token['":\s]+['"]([^'"]+)/i);
+          if (bodyMatch) csrf = bodyMatch[1];
+        }
+        resolve(csrf);
+      });
+    });
+    req.on("error", reject);
+    req.on("timeout", () => { req.destroy(); reject(new Error("CSRF fetch timeout")); });
+  });
+}
+
+/** Get the frontmost app name (macOS only) */
+function getFrontmostApp() {
+  if (process.platform !== "darwin") return Promise.resolve(null);
+  return new Promise((resolve) => {
+    exec(
+      `osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true'`,
+      (err, stdout) => resolve(err ? null : stdout.trim())
+    );
+  });
+}
+
+/** Activate an app by name (macOS only) */
+function activateApp(appName) {
+  if (!appName || process.platform !== "darwin") return;
+  exec(`osascript -e 'tell application "${appName}" to activate'`, (err) => {
+    if (err) console.error(`Failed to activate app "${appName}": ${err.message}`);
+  });
+}
+
+/** Open browser */
+function openBrowser(url) {
+  const cmd = process.platform === "darwin" ? `open "${url}"`
+    : process.platform === "win32" ? `start "" "${url}"`
+    : `xdg-open "${url}"`;
+  exec(cmd, (err) => { if (err) console.error(`Failed to open browser: ${err.message}`); });
+}
+
+/** SSO login flow */
+function startSsoLogin(baseUrl) {
+  return new Promise(async (resolve, reject) => {
+    // Remember which app was active before opening browser
+    const previousApp = await getFrontmostApp();
+    console.error(`[AUTH] Previous frontmost app: ${previousApp || "unknown"}`);
+
+    // SSO redirects to: redirect_url?token=xxx (root path, not /callback)
+    const callbackUrl = SSO_CALLBACK_DOMAIN;
+    const ssoUrl = `${SSO_LOGIN_URL}?platform_id=${SSO_PLATFORM_ID}&redirect=${encodeURIComponent(callbackUrl)}`;
+
+    const server = http.createServer(async (req, res) => {
+      const reqUrl = new URL(req.url || "/", `http://localhost:${SSO_CALLBACK_PORT}`);
+
+      if (reqUrl.pathname === "/") {
+        const ssoToken = reqUrl.searchParams.get("token");
+        if (!ssoToken) {
+          // First redirect from SSO without token — redirect back to SSO for password input
+          console.error("[AUTH] Callback received without token, redirecting back to SSO for password...");
+          res.writeHead(302, { Location: ssoUrl });
+          res.end();
+          return;
+        }
+
+        try {
+          // Fetch CSRF token using the SSO token
+          const csrfToken = await fetchCsrfToken(baseUrl, ssoToken);
+
+          const creds = {
+            ssoToken,
+            csrfToken,
+            expiresAt: Date.now() + 24 * 60 * 60 * 1000, // 1 day (SSO token expiry)
+          };
+          saveCredentials(creds);
+
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(`
+            <html><body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
+              <div style="text-align:center;">
+                <h1 style="color:#52c41a;">&#10003; 登录成功</h1>
+                <p>多语言 MCP Server 已获取认证信息，正在返回应用…</p>
+              </div>
+            </body></html>
+            <script>setTimeout(function(){ window.close(); }, 1000);</script>
+          `);
+          server.close();
+          // Switch back to the original app
+          activateApp(previousApp);
+          resolve(creds);
+        } catch (err) {
+          res.writeHead(500, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(`<h2>登录失败：${err.message}</h2>`);
+          server.close();
+          reject(err);
+        }
+      } else {
+        res.writeHead(404);
+        res.end("Not found");
+      }
+    });
+
+    server.listen(SSO_CALLBACK_PORT, () => {
+      console.error(`Auth callback server listening on port ${SSO_CALLBACK_PORT}`);
+      openBrowser(ssoUrl);
+    });
+    server.on("error", (err) => reject(new Error(`Failed to start auth server: ${err.message}`)));
+    setTimeout(() => { server.close(); reject(new Error("SSO login timed out (5 minutes)")); }, 5 * 60 * 1000);
+  });
+}
+
+// In-memory credentials
+let currentCredentials = loadCredentials();
+if (currentCredentials) {
+  console.error("Restored saved credentials (valid until " + new Date(currentCredentials.expiresAt).toLocaleString() + ")");
+}
+
+function isAuthenticated() {
+  return !!(currentCredentials && Date.now() < currentCredentials.expiresAt);
+}
+
+function requireAuth() {
+  if (!isAuthenticated()) {
+    return "Not authenticated. Please call the 'authenticate' tool first to login via SSO.";
+  }
+  return null;
+}
+
+// ==================== 原有配置 ====================
+
+// 从文件读取（保留作为 fallback）
 function loadFile(filename) {
   try {
     return fs.readFileSync(nodePath.join(__dirname, filename), "utf-8").trim();
@@ -22,8 +215,8 @@ function loadFile(filename) {
   }
 }
 
-// 基础配置（不含 cookie/csrf，这些每次请求时动态读取）
-const BASE_URL = "https://operate-test.intsig.net";
+// 基础配置
+const BASE_URL = process.env.OPERATE_BASE_URL || "https://operate-test.intsig.net";
 const PORT = parseInt(process.env.PORT || "3100", 10);
 const MODE = process.argv.includes("--http") ? "http" : "stdio";
 
@@ -98,25 +291,25 @@ function extractStrings(versions, platformId) {
   return result;
 }
 
-// 通用请求方法 — 使用 curl 子进程发送请求
+// 通用请求方法 — 优先使用 SSO 凭据，fallback 到文件/环境变量
 async function operatePost(urlPath, params) {
-  const cookie = loadFile(".cookie") || process.env.OPERATE_COOKIE || "";
-  const csrfToken = loadFile(".csrf-token") || process.env.OPERATE_CSRF_TOKEN || "";
+  let cookie, csrfToken;
+
+  if (isAuthenticated()) {
+    cookie = `sso_token=${currentCredentials.ssoToken}`;
+    csrfToken = currentCredentials.csrfToken || "";
+  } else {
+    cookie = loadFile(".cookie") || process.env.OPERATE_COOKIE || "";
+    csrfToken = loadFile(".csrf-token") || process.env.OPERATE_CSRF_TOKEN || "";
+  }
+
   const body = new URLSearchParams(params).toString();
   const url = `${BASE_URL}${urlPath}`;
 
-  console.error(`[DEBUG] curl ${url}, cookie: ${cookie.length} chars`);
+  console.error(`[DEBUG] curl ${url}, auth: ${isAuthenticated() ? "SSO" : "file/env"}`);
 
-  // 生成 bash 脚本执行 curl 请求（包含调试信息）
   const curlScript = `#!/bin/bash
-# 清除可能影响网络的环境变量
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY no_proxy NO_PROXY
-
-# 输出调试信息到 stderr
-echo "[CURL-DEBUG] PATH=$PATH" >&2
-echo "[CURL-DEBUG] http_proxy=$http_proxy https_proxy=$https_proxy" >&2
-echo "[CURL-DEBUG] resolving: $(dig +short operate-test.intsig.net 2>/dev/null || echo 'dig not available')" >&2
-
 curl -s '${url}' \\
   -H 'accept: application/json, text/plain, */*' \\
   -H 'content-type: application/x-www-form-urlencoded' \\
@@ -149,6 +342,37 @@ curl -s '${url}' \\
 
 // 注册所有 tools
 function registerTools(server) {
+  // Tool 0: SSO 认证
+  server.tool(
+    "authenticate",
+    "Login to operate platform via SSO QR code scan. Opens browser for authentication.",
+    {},
+    async () => {
+      if (isAuthenticated()) {
+        return { content: [{ type: "text", text: "Already authenticated. Use 'logout' tool to re-authenticate." }] };
+      }
+      try {
+        const creds = await startSsoLogin(BASE_URL);
+        currentCredentials = creds;
+        return { content: [{ type: "text", text: "Authentication successful! You can now use all language tools." }] };
+      } catch (err) {
+        return { content: [{ type: "text", text: `Authentication failed: ${err.message}` }] };
+      }
+    }
+  );
+
+  // Tool: logout
+  server.tool(
+    "logout",
+    "Clear saved credentials and logout.",
+    {},
+    async () => {
+      clearCredentials();
+      currentCredentials = null;
+      return { content: [{ type: "text", text: "Logged out. Call 'authenticate' to login again." }] };
+    }
+  );
+
   // Tool 1: 获取版本列表
   server.tool(
     "get-version-list",
