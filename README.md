@@ -13,49 +13,50 @@
 
 ## 安装
 
-### 一键安装
+### 方式一：npx 直接使用（无需克隆）
 
-```bash
-git clone git@github.com:tianmuji/mcp-language-server.git ~/mcp-language-server
-cd ~/mcp-language-server
-bash setup.sh
-```
+#### 1. 配置 DNS 解析
 
-安装脚本会自动完成：
-1. 安装 npm 依赖
-2. 交互式配置 Cookie 和 CSRF Token
-3. 安装 i18n Plugin（自动注册 MCP Server + `/i18n` Skill）
-
-安装完成后**重启 Claude Code** 即可使用。
-
-### 手动安装
-
-#### 1. 克隆仓库 & 安装依赖
-
-```bash
-git clone git@github.com:tianmuji/mcp-language-server.git ~/mcp-language-server
-cd ~/mcp-language-server
-npm install
-```
-
-#### 2. 配置 DNS 解析
-
-回调域名需要解析到 `127.0.0.1`，在 `/etc/hosts` 中添加：
+在 `/etc/hosts` 中添加：
 
 ```
 127.0.0.1 yapi-mcp-auth.camscanner.com
 ```
 
-#### 3. 安装插件
+#### 2. 注册到 Claude Code
 
-```bash
-claude plugin marketplace add tianmuji/mcp-language-server --sparse plugins .claude-plugin
-claude plugin install i18n
+编辑 `~/.claude/.mcp.json`，在 `mcpServers` 中添加：
+
+```json
+{
+  "mcpServers": {
+    "language": {
+      "command": "npx",
+      "args": ["-y", "github:tianmuji/mcp-language-server"],
+      "env": {
+        "OPERATE_BASE_URL": "https://operate-test.intsig.net",
+        "SSO_LOGIN_URL": "https://web-sso-sandbox.intsig.net/login",
+        "SSO_PLATFORM_ID": "QlCcDew3su0CA5eHRe20x61oTfeYvlmV",
+        "SSO_CALLBACK_DOMAIN": "http://yapi-mcp-auth.camscanner.com:9877",
+        "SSO_CALLBACK_PORT": "9877"
+      }
+    }
+  }
+}
 ```
 
-插件安装后会自动注册 MCP Server 和 `/i18n` Skill，无需手动编辑 `~/.claude/.mcp.json`。
+#### 3. 重启 Claude Code
 
-#### 4. 重启 Claude Code
+无需克隆仓库，`npx` 会自动从 GitHub 下载并运行。
+
+### 方式二：插件安装（含 /i18n Skill）
+
+```bash
+git clone git@github.com:tianmuji/mcp-language-server.git ~/mcp-language-server
+cd ~/mcp-language-server && npm install && bash setup.sh
+```
+
+插件安装后会自动注册 MCP Server 和 `/i18n` Skill。重启 Claude Code 即可使用。
 
 ## 使用方式
 
