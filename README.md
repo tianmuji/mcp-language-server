@@ -38,16 +38,13 @@ cd ~/mcp-language-server
 npm install
 ```
 
-#### 2. 配置认证
+#### 2. 配置 DNS 解析
 
-浏览器打开 https://operate-test.intsig.net/multilanguage ，登录后打开 DevTools → Network，做一次搜索操作，找到 `get-string-search` 请求，从请求头中提取 Cookie 和 X-CSRF-Token：
+回调域名需要解析到 `127.0.0.1`，在 `/etc/hosts` 中添加：
 
-```bash
-echo '你的cookie值' > ~/mcp-language-server/.cookie
-echo '你的csrf-token值' > ~/mcp-language-server/.csrf-token
 ```
-
-> Cookie 一般一天后过期，过期后参考下方「更新 Cookie」章节。
+127.0.0.1 yapi-mcp-auth.camscanner.com
+```
 
 #### 3. 安装插件
 
@@ -92,36 +89,12 @@ claude plugin install i18n
 | 47 | CS PDF |
 | 53 | CS Harmony |
 
-## 更新 Cookie
+## 认证
 
-Cookie 一般一天后过期，过期后有两种方式更新：
+首次使用时在 Claude Code 中调用 `authenticate` 工具，会自动打开浏览器进行 SSO 扫码登录。
 
-### 方式一：传入 curl 命令（推荐）
-
-浏览器 DevTools → Network → 右键请求 → Copy as cURL，然后：
-
-```bash
-bash ~/mcp-language-server/update-cookie.sh '粘贴整个curl命令'
-```
-
-脚本会自动从 curl 命令中提取 Cookie 和 CSRF Token。
-
-### 方式二：手动输入
-
-```bash
-bash ~/mcp-language-server/update-cookie.sh
-```
-
-按提示粘贴 Cookie 和 X-CSRF-Token 值。
-
-### 方式三：直接编辑文件
-
-```bash
-echo '新的cookie' > ~/mcp-language-server/.cookie
-echo '新的csrf-token' > ~/mcp-language-server/.csrf-token
-```
-
-更新后**重启 Claude Code** 生效。
+- 认证信息保存在 `~/.language-mcp/credentials.json`
+- 有效期 24 小时，过期后重新 `authenticate`
 
 ## 项目结构
 
