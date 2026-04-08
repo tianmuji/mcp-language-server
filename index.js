@@ -11,48 +11,20 @@ import nodePath from "node:path";
 import { execSync, exec } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { URL } from "node:url";
+import { startSsoLogin, createCredentialsManager } from "mcp-sso-auth";
 
 // 脚本所在目录
 const __dirname = nodePath.dirname(fileURLToPath(import.meta.url));
 
-// ==================== SSO 认证模块 ====================
+// ==================== SSO 认证模块（使用 mcp-sso-auth） ====================
 
-const CREDENTIALS_DIR = nodePath.join(
-  process.env.HOME || process.env.USERPROFILE || "/tmp",
-  ".language-mcp"
-);
-const CREDENTIALS_FILE = nodePath.join(CREDENTIALS_DIR, "credentials.json");
-
-// SSO 配置（从环境变量读取）
-const SSO_LOGIN_URL = process.env.SSO_LOGIN_URL || "https://web-sso-sandbox.intsig.net/login";
-const SSO_PLATFORM_ID = process.env.SSO_PLATFORM_ID || "QlCcDew3su0CA5eHRe20x61oTfeYvlmV";
-const SSO_CALLBACK_DOMAIN = process.env.SSO_CALLBACK_DOMAIN || "http://yapi-mcp-auth.camscanner.com:9877";
+const SSO_LOGIN_URL = process.env.SSO_LOGIN_URL || "https://web-sso.intsig.net/login";
+const SSO_PLATFORM_ID = process.env.SSO_PLATFORM_ID || "OdliDeAnVtlUA5cGwwxZPHUyXtqPCcNw";
+const SSO_CALLBACK_DOMAIN = process.env.SSO_CALLBACK_DOMAIN || "https://static-cdn.camscanner.com/camscanner-activity/mcp-auth-callback.html";
 const SSO_CALLBACK_PORT = parseInt(process.env.SSO_CALLBACK_PORT || "9877", 10);
 
-/** Load saved credentials from disk */
-function loadCredentials() {
-  try {
-    if (!fs.existsSync(CREDENTIALS_FILE)) return null;
-    const data = JSON.parse(fs.readFileSync(CREDENTIALS_FILE, "utf-8"));
-    if (data.expiresAt && Date.now() < data.expiresAt) return data;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/** Save credentials to disk */
-function saveCredentials(creds) {
-  if (!fs.existsSync(CREDENTIALS_DIR)) {
-    fs.mkdirSync(CREDENTIALS_DIR, { recursive: true });
-  }
-  fs.writeFileSync(CREDENTIALS_FILE, JSON.stringify(creds, null, 2));
-}
-
-/** Clear saved credentials */
-function clearCredentials() {
-  try { if (fs.existsSync(CREDENTIALS_FILE)) fs.unlinkSync(CREDENTIALS_FILE); } catch {}
-}
+const credentialsManager = createCredentialsManager("language-mcp");
+const { load: loadCredentials, save: saveCredentials, clear: clearCredentials } = credentialsManager;
 
 /** Fetch CSRF token from operate platform using sso_token */
 function fetchCsrfToken(baseUrl, ssoToken) {
@@ -67,7 +39,6 @@ function fetchCsrfToken(baseUrl, ssoToken) {
       },
     };
     const req = mod.get(url.toString(), options, (res) => {
-      // Extract _csrf from Set-Cookie
       const cookies = res.headers["set-cookie"] || [];
       let csrf = "";
       for (const c of cookies) {
@@ -77,7 +48,6 @@ function fetchCsrfToken(baseUrl, ssoToken) {
       let body = "";
       res.on("data", (chunk) => (body += chunk));
       res.on("end", () => {
-        // Also try to extract csrf from response body (Yii2 meta tag)
         if (!csrf) {
           const bodyMatch = body.match(/csrf[_-]token['":\s]+['"]([^'"]+)/i);
           if (bodyMatch) csrf = bodyMatch[1];
@@ -87,106 +57,6 @@ function fetchCsrfToken(baseUrl, ssoToken) {
     });
     req.on("error", reject);
     req.on("timeout", () => { req.destroy(); reject(new Error("CSRF fetch timeout")); });
-  });
-}
-
-/** Get the frontmost app name (macOS only) */
-function getFrontmostApp() {
-  if (process.platform !== "darwin") return Promise.resolve(null);
-  return new Promise((resolve) => {
-    exec(
-      `osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true'`,
-      (err, stdout) => resolve(err ? null : stdout.trim())
-    );
-  });
-}
-
-/** Activate an app by name (macOS only) */
-function activateApp(appName) {
-  if (!appName || process.platform !== "darwin") return;
-  exec(`osascript -e 'tell application "${appName}" to activate'`, (err) => {
-    if (err) console.error(`Failed to activate app "${appName}": ${err.message}`);
-  });
-}
-
-/** Open browser */
-function openBrowser(url) {
-  const cmd = process.platform === "darwin" ? `open "${url}"`
-    : process.platform === "win32" ? `start "" "${url}"`
-    : `xdg-open "${url}"`;
-  exec(cmd, (err) => { if (err) console.error(`Failed to open browser: ${err.message}`); });
-}
-
-/** SSO login flow */
-function startSsoLogin(baseUrl) {
-  return new Promise(async (resolve, reject) => {
-    // Remember which app was active before opening browser
-    const previousApp = await getFrontmostApp();
-    console.error(`[AUTH] Previous frontmost app: ${previousApp || "unknown"}`);
-
-    // SSO redirects to the relay page, which then forwards token to localhost
-    const isLocal = SSO_CALLBACK_DOMAIN.includes('localhost') || SSO_CALLBACK_DOMAIN.includes('127.0.0.1');
-    const relayUrl = isLocal
-      ? SSO_CALLBACK_DOMAIN
-      : `${SSO_CALLBACK_DOMAIN}${SSO_CALLBACK_DOMAIN.includes('?') ? '&' : '?'}port=${SSO_CALLBACK_PORT}`;
-    const ssoUrl = `${SSO_LOGIN_URL}?platform_id=${SSO_PLATFORM_ID}&redirect=${encodeURIComponent(relayUrl)}`;
-
-    const server = http.createServer(async (req, res) => {
-      const reqUrl = new URL(req.url || "/", `http://localhost:${SSO_CALLBACK_PORT}`);
-
-      if (reqUrl.pathname === "/") {
-        const ssoToken = reqUrl.searchParams.get("token");
-        if (!ssoToken) {
-          // First redirect from SSO without token — redirect back to SSO for password input
-          console.error("[AUTH] Callback received without token, redirecting back to SSO for password...");
-          res.writeHead(302, { Location: ssoUrl });
-          res.end();
-          return;
-        }
-
-        try {
-          // Fetch CSRF token using the SSO token
-          const csrfToken = await fetchCsrfToken(baseUrl, ssoToken);
-
-          const creds = {
-            ssoToken,
-            csrfToken,
-            expiresAt: Date.now() + 24 * 60 * 60 * 1000, // 1 day (SSO token expiry)
-          };
-          saveCredentials(creds);
-
-          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-          res.end(`
-            <html><body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
-              <div style="text-align:center;">
-                <h1 style="color:#52c41a;">&#10003; 登录成功</h1>
-                <p>多语言 MCP Server 已获取认证信息，正在返回应用…</p>
-              </div>
-            </body></html>
-            <script>setTimeout(function(){ window.close(); }, 1000);</script>
-          `);
-          server.close();
-          // Switch back to the original app
-          activateApp(previousApp);
-          resolve(creds);
-        } catch (err) {
-          res.writeHead(500, { "Content-Type": "text/html; charset=utf-8" });
-          res.end(`<h2>登录失败：${err.message}</h2>`);
-          server.close();
-          reject(err);
-        }
-      } else {
-        res.writeHead(404);
-        res.end("Not found");
-      }
-    });
-
-    server.listen(SSO_CALLBACK_PORT, () => {
-      console.error(`Auth callback server listening on port ${SSO_CALLBACK_PORT}`);
-      openBrowser(ssoUrl);
-    });
-    server.on("error", (err) => reject(new Error(`Failed to start auth server: ${err.message}`)));
-    setTimeout(() => { server.close(); reject(new Error("SSO login timed out (5 minutes)")); }, 5 * 60 * 1000);
   });
 }
 
@@ -355,7 +225,19 @@ function registerTools(server) {
         return { content: [{ type: "text", text: "Already authenticated. Use 'logout' tool to re-authenticate." }] };
       }
       try {
-        const creds = await startSsoLogin(BASE_URL);
+        const creds = await startSsoLogin({
+          ssoLoginUrl: SSO_LOGIN_URL,
+          platformId: SSO_PLATFORM_ID,
+          callbackDomain: SSO_CALLBACK_DOMAIN,
+          callbackPort: SSO_CALLBACK_PORT,
+          serverName: "多语言 MCP Server",
+          async exchangeToken(ssoToken) {
+            const csrfToken = await fetchCsrfToken(BASE_URL, ssoToken);
+            const result = { ssoToken, csrfToken, expiresAt: Date.now() + 24 * 60 * 60 * 1000 };
+            saveCredentials(result);
+            return result;
+          },
+        });
         currentCredentials = creds;
         return { content: [{ type: "text", text: "Authentication successful! You can now use all language tools." }] };
       } catch (err) {
