@@ -9,6 +9,12 @@
       "description": "CamScanner multi-language string integration plugin. Search, export, and write locale strings via MCP language server.",
       "source": "./plugins/i18n",
       "category": "development"
+    },
+    {
+      "name": "yapi",
+      "description": "YApi API documentation management plugin. Search, query, create, and export API documentation via YApi MCP server.",
+      "source": "./plugins/yapi",
+      "category": "development"
     }
   ]
 }

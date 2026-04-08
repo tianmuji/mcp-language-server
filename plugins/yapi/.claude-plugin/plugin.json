@@ -1,0 +1,8 @@
+{
+  "name": "yapi",
+  "description": "YApi API documentation management plugin. Search, query, create, and export API documentation via YApi MCP server.",
+  "version": "1.0.0",
+  "author": {
+    "name": "CamScanner"
+  }
+}

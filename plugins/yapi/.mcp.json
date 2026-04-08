@@ -1,0 +1,13 @@
+{
+  "yapi": {
+    "command": "npx",
+    "args": ["-y", "github:tianmuji/yapi-mcp-server"],
+    "env": {
+      "YAPI_BASE_URL": "https://web-api.intsig.net",
+      "SSO_LOGIN_URL": "https://web-sso.intsig.net/login",
+      "SSO_PLATFORM_ID": "odVOyexj6maKIHAXv9LflO8tw7WNOI4I",
+      "SSO_CALLBACK_DOMAIN": "https://static-cdn.camscanner.com/camscanner-activity/mcp-auth-callback.html",
+      "SSO_CALLBACK_PORT": "9876"
+    }
+  }
+}
