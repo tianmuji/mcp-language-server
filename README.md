@@ -15,16 +15,6 @@
 
 ### 方式一：npx 直接使用（无需克隆）
 
-#### 1. 配置 DNS 解析
-
-在 `/etc/hosts` 中添加：
-
-```
-127.0.0.1 yapi-mcp-auth.camscanner.com
-```
-
-#### 2. 注册到 Claude Code
-
 编辑 `~/.claude/.mcp.json`，在 `mcpServers` 中添加：
 
 ```json
@@ -37,7 +27,7 @@
         "OPERATE_BASE_URL": "https://operate.intsig.net",
         "SSO_LOGIN_URL": "https://web-sso.intsig.net/login",
         "SSO_PLATFORM_ID": "OdliDeAnVtlUA5cGwwxZPHUyXtqPCcNw",
-        "SSO_CALLBACK_DOMAIN": "http://yapi-mcp-auth.camscanner.com:9877",
+        "SSO_CALLBACK_DOMAIN": "https://static-cdn.camscanner.com/camscanner-activity/mcp-auth-callback.html",
         "SSO_CALLBACK_PORT": "9877"
       }
     }
@@ -45,7 +35,7 @@
 }
 ```
 
-#### 3. 重启 Claude Code
+重启 Claude Code
 
 无需克隆仓库，`npx` 会自动从 GitHub 下载并运行。
 
