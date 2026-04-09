@@ -15,7 +15,7 @@
   "license": "ISC",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
-    "mcp-sso-auth": "git+https://gitlab.intsig.net/cs-templates/skills/mcp-sso-auth.git",
+    "playwright-core": "^1.59.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -13,23 +13,11 @@ const operate_client_js_1 = require("./operate-client.js");
 const auth_js_1 = require("./auth.js");
 // --- Config from env ---
 const OPERATE_BASE_URL = process.env.OPERATE_BASE_URL;
-const SSO_LOGIN_URL = process.env.SSO_LOGIN_URL || 'https://web-sso.intsig.net/login';
-const SSO_PLATFORM_ID = process.env.SSO_PLATFORM_ID || 'OdliDeAnVtlUA5cGwwxZPHUyXtqPCcNw';
-const SSO_CALLBACK_DOMAIN = process.env.SSO_CALLBACK_DOMAIN;
-const SSO_CALLBACK_PORT = parseInt(process.env.SSO_CALLBACK_PORT || '9877', 10);
 if (!OPERATE_BASE_URL) {
     console.error('Error: OPERATE_BASE_URL environment variable is required');
     process.exit(1);
 }
-if (!SSO_CALLBACK_DOMAIN) {
-    console.error('Error: SSO_CALLBACK_DOMAIN environment variable is required');
-    process.exit(1);
-}
 const ssoConfig = {
-    ssoLoginUrl: SSO_LOGIN_URL,
-    platformId: SSO_PLATFORM_ID,
-    callbackDomain: SSO_CALLBACK_DOMAIN,
-    callbackPort: SSO_CALLBACK_PORT,
     operateBaseUrl: OPERATE_BASE_URL,
 };
 const client = new operate_client_js_1.OperateClient(OPERATE_BASE_URL);

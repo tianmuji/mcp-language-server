@@ -1,37 +1,4 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -40,106 +7,134 @@ exports.loadCredentials = loadCredentials;
 exports.saveCredentials = saveCredentials;
 exports.clearCredentials = clearCredentials;
 exports.startSsoLogin = startSsoLogin;
-const http_1 = __importDefault(require("http"));
-const https_1 = __importDefault(require("https"));
-const url_1 = require("url");
-// Dynamic import for ESM module (mcp-sso-auth)
-let _ssoAuth = null;
-async function getSsoAuth() {
-    if (!_ssoAuth) {
-        _ssoAuth = await Promise.resolve().then(() => __importStar(require('mcp-sso-auth')));
-    }
-    return _ssoAuth;
-}
-let _credsMgr = null;
-async function getCredsMgr() {
-    if (!_credsMgr) {
-        const { createCredentialsManager } = await getSsoAuth();
-        _credsMgr = createCredentialsManager('language-mcp');
-    }
-    return _credsMgr;
-}
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const os_1 = __importDefault(require("os"));
+const playwright_core_1 = require("playwright-core");
+// --- Credentials persistence ---
+const CREDS_DIR = path_1.default.join(os_1.default.homedir(), '.language-mcp');
+const CREDS_FILE = path_1.default.join(CREDS_DIR, 'credentials.json');
 async function loadCredentials() {
-    const mgr = await getCredsMgr();
-    return mgr.load();
+    try {
+        if (!fs_1.default.existsSync(CREDS_FILE))
+            return null;
+        const data = JSON.parse(fs_1.default.readFileSync(CREDS_FILE, 'utf-8'));
+        if (data && data.expiresAt > Date.now())
+            return data;
+        return null;
+    }
+    catch {
+        return null;
+    }
 }
 async function saveCredentials(creds) {
-    const mgr = await getCredsMgr();
-    mgr.save(creds);
+    if (!fs_1.default.existsSync(CREDS_DIR))
+        fs_1.default.mkdirSync(CREDS_DIR, { recursive: true });
+    fs_1.default.writeFileSync(CREDS_FILE, JSON.stringify(creds, null, 2));
 }
 async function clearCredentials() {
-    const mgr = await getCredsMgr();
-    mgr.clear();
+    try {
+        fs_1.default.unlinkSync(CREDS_FILE);
+    }
+    catch { /* ignore */ }
 }
-async function startSsoLogin(config) {
-    const { startSsoLogin: ssoLogin } = await getSsoAuth();
-    return ssoLogin({
-        ssoLoginUrl: config.ssoLoginUrl,
-        platformId: config.platformId,
-        callbackDomain: config.callbackDomain,
-        callbackPort: config.callbackPort,
-        serverName: '多语言 MCP Server',
-        async exchangeToken(ssoToken) {
-            return exchangeTokenWithOperate(config.operateBaseUrl, ssoToken);
-        },
-    });
+// --- Find system Chromium installed by Playwright ---
+function findChromium() {
+    const cacheDir = path_1.default.join(os_1.default.homedir(), 'Library', 'Caches', 'ms-playwright');
+    if (!fs_1.default.existsSync(cacheDir))
+        return undefined;
+    const dirs = fs_1.default.readdirSync(cacheDir)
+        .filter(d => d.startsWith('chromium-'))
+        .sort()
+        .reverse();
+    for (const dir of dirs) {
+        const candidates = [
+            path_1.default.join(cacheDir, dir, 'chrome-mac-arm64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+            path_1.default.join(cacheDir, dir, 'chrome-mac', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+            path_1.default.join(cacheDir, dir, 'chrome-mac-arm64', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'),
+            path_1.default.join(cacheDir, dir, 'chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'),
+            path_1.default.join(cacheDir, dir, 'chrome-linux', 'chrome'),
+        ];
+        for (const c of candidates) {
+            if (fs_1.default.existsSync(c))
+                return c;
+        }
+    }
+    return undefined;
 }
 /**
- * Exchange SSO token for operate platform session cookies and CSRF token.
+ * Launch a browser for the user to complete the full login flow
+ * (SSO + zero-trust gateway), then extract all cookies and CSRF token.
  */
-function exchangeTokenWithOperate(baseUrl, ssoToken) {
-    return new Promise((resolve, reject) => {
-        const url = new url_1.URL(baseUrl + '/site/get-config');
-        const mod = url.protocol === 'https:' ? https_1.default : http_1.default;
-        const options = {
-            timeout: 10000,
-            headers: {
-                Cookie: `sso_token=${ssoToken}`,
-                'x-requested-with': 'XMLHttpRequest',
-            },
-        };
-        const req = mod.get(url.toString(), options, (res) => {
-            const rawCookies = res.headers['set-cookie'] || [];
-            const cookiePairs = [];
-            for (const c of rawCookies) {
-                const m = c.match(/^([^=]+)=([^;]*)/);
-                if (m) {
-                    cookiePairs.push(`${m[1]}=${m[2]}`);
-                }
-            }
-            cookiePairs.push(`sso_token=${ssoToken}`);
-            const sessionCookie = cookiePairs.join('; ');
-            let body = '';
-            res.on('data', (chunk) => (body += chunk));
-            res.on('end', () => {
-                let csrfToken = '';
-                const fieldMatch = body.match(/name="_csrf"\s+value="([^"]+)"/);
-                if (fieldMatch) {
-                    csrfToken = fieldMatch[1];
-                }
-                else {
-                    // Fallback: try to extract from meta tag or alternative pattern
-                    const altMatch = body.match(/value="([^"]+)"\s*>/);
-                    if (altMatch)
-                        csrfToken = altMatch[1];
-                }
-                if (!csrfToken) {
-                    reject(new Error(`Failed to extract CSRF token from operate platform. Status: ${res.statusCode}. ` +
-                        `Response length: ${body.length}. Try 'logout' then 'authenticate' again.`));
-                    return;
-                }
-                resolve({
-                    ssoToken,
-                    sessionCookie,
-                    csrfToken,
-                    expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-                });
-            });
-        });
-        req.on('error', reject);
-        req.on('timeout', () => {
-            req.destroy();
-            reject(new Error('Session fetch timeout'));
-        });
+async function startSsoLogin(config) {
+    const execPath = findChromium();
+    if (!execPath) {
+        throw new Error('Cannot find Chromium. Please install Playwright browsers: npx playwright install chromium');
+    }
+    // Navigate to a page that requires auth — this triggers the SSO redirect chain
+    const targetUrl = config.operateBaseUrl + '/multilanguage/edit-language';
+    const browser = await playwright_core_1.chromium.launch({
+        headless: false,
+        executablePath: execPath,
     });
+    try {
+        const context = await browser.newContext({ ignoreHTTPSErrors: true });
+        const page = await context.newPage();
+        console.error('[Auth] Launching browser for login...');
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        // Wait for the user to complete login and land back on operate.intsig.net
+        // The URL must be on operate.intsig.net AND not be a redirect to SSO
+        console.error('[Auth] Waiting for user to complete login (up to 180s)...');
+        await page.waitForURL(url => {
+            const u = typeof url === 'string' ? new URL(url) : url;
+            return u.hostname === 'operate.intsig.net';
+        }, { timeout: 180000 });
+        // Ensure the page is fully loaded
+        await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+        // Extract all cookies
+        const cookies = await context.cookies();
+        const operateCookies = cookies.filter(c => c.domain.includes('intsig.net') || c.domain.includes('operate'));
+        const sessionCookie = operateCookies
+            .map(c => `${c.name}=${c.value}`)
+            .join('; ');
+        if (!sessionCookie) {
+            throw new Error('No cookies captured after login. Please try again.');
+        }
+        // Navigate to /site/get-config to extract CSRF token
+        // (the SPA landing page doesn't contain it, but get-config always returns the HTML with _csrf)
+        await page.goto(config.operateBaseUrl + '/site/get-config', { waitUntil: 'domcontentloaded', timeout: 15000 });
+        // Re-capture cookies (get-config may refresh JSESSID)
+        const refreshedCookies = await context.cookies();
+        const allCookies = refreshedCookies.filter(c => c.domain.includes('intsig.net') || c.domain.includes('operate'));
+        const finalCookie = allCookies.map(c => `${c.name}=${c.value}`).join('; ');
+        let csrfToken = '';
+        try {
+            csrfToken = await page.evaluate(`
+        (() => {
+          const el = document.querySelector('input[name="_csrf"]');
+          return el ? el.value : '';
+        })()
+      `);
+        }
+        catch { /* ignore */ }
+        if (!csrfToken) {
+            const html = await page.content();
+            const match = html.match(/name="_csrf"\s+value="([^"]+)"/);
+            if (match)
+                csrfToken = match[1];
+        }
+        if (!csrfToken) {
+            throw new Error('Login succeeded but failed to extract CSRF token. Please try again.');
+        }
+        console.error('[Auth] Login successful! Cookies and CSRF token captured.');
+        return {
+            ssoToken: '',
+            sessionCookie: finalCookie,
+            csrfToken,
+            expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+        };
+    }
+    finally {
+        await browser.close();
+    }
 }

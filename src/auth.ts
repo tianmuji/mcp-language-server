@@ -1,126 +1,157 @@
-import http from 'http'
-import https from 'https'
-import { URL } from 'url'
+import fs from 'fs'
+import path from 'path'
+import os from 'os'
+import { chromium } from 'playwright-core'
 import type { OperateCredentials } from './operate-client.js'
 
-// Dynamic import for ESM module (mcp-sso-auth)
-let _ssoAuth: any = null
-async function getSsoAuth() {
-  if (!_ssoAuth) {
-    _ssoAuth = await import('mcp-sso-auth')
-  }
-  return _ssoAuth
-}
+// --- Credentials persistence ---
 
-let _credsMgr: any = null
-async function getCredsMgr() {
-  if (!_credsMgr) {
-    const { createCredentialsManager } = await getSsoAuth()
-    _credsMgr = createCredentialsManager('language-mcp')
-  }
-  return _credsMgr
-}
+const CREDS_DIR = path.join(os.homedir(), '.language-mcp')
+const CREDS_FILE = path.join(CREDS_DIR, 'credentials.json')
 
 export async function loadCredentials(): Promise<OperateCredentials | null> {
-  const mgr = await getCredsMgr()
-  return mgr.load()
+  try {
+    if (!fs.existsSync(CREDS_FILE)) return null
+    const data = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf-8'))
+    if (data && data.expiresAt > Date.now()) return data
+    return null
+  } catch {
+    return null
+  }
 }
 
 export async function saveCredentials(creds: OperateCredentials): Promise<void> {
-  const mgr = await getCredsMgr()
-  mgr.save(creds)
+  if (!fs.existsSync(CREDS_DIR)) fs.mkdirSync(CREDS_DIR, { recursive: true })
+  fs.writeFileSync(CREDS_FILE, JSON.stringify(creds, null, 2))
 }
 
 export async function clearCredentials(): Promise<void> {
-  const mgr = await getCredsMgr()
-  mgr.clear()
+  try { fs.unlinkSync(CREDS_FILE) } catch { /* ignore */ }
 }
 
+// --- Find system Chromium installed by Playwright ---
+
+function findChromium(): string | undefined {
+  const cacheDir = path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright')
+  if (!fs.existsSync(cacheDir)) return undefined
+
+  const dirs = fs.readdirSync(cacheDir)
+    .filter(d => d.startsWith('chromium-'))
+    .sort()
+    .reverse()
+
+  for (const dir of dirs) {
+    const candidates = [
+      path.join(cacheDir, dir, 'chrome-mac-arm64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+      path.join(cacheDir, dir, 'chrome-mac', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+      path.join(cacheDir, dir, 'chrome-mac-arm64', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'),
+      path.join(cacheDir, dir, 'chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'),
+      path.join(cacheDir, dir, 'chrome-linux', 'chrome'),
+    ]
+    for (const c of candidates) {
+      if (fs.existsSync(c)) return c
+    }
+  }
+  return undefined
+}
+
+// --- Auth config ---
+
 export interface SsoConfig {
-  ssoLoginUrl: string
-  platformId: string
-  callbackDomain: string
-  callbackPort: number
   operateBaseUrl: string
 }
 
-export async function startSsoLogin(config: SsoConfig): Promise<OperateCredentials> {
-  const { startSsoLogin: ssoLogin } = await getSsoAuth()
-  return ssoLogin({
-    ssoLoginUrl: config.ssoLoginUrl,
-    platformId: config.platformId,
-    callbackDomain: config.callbackDomain,
-    callbackPort: config.callbackPort,
-    serverName: '多语言 MCP Server',
-    async exchangeToken(ssoToken: string) {
-      return exchangeTokenWithOperate(config.operateBaseUrl, ssoToken)
-    },
-  })
-}
-
 /**
- * Exchange SSO token for operate platform session cookies and CSRF token.
+ * Launch a browser for the user to complete the full login flow
+ * (SSO + zero-trust gateway), then extract all cookies and CSRF token.
  */
-function exchangeTokenWithOperate(baseUrl: string, ssoToken: string): Promise<OperateCredentials> {
-  return new Promise((resolve, reject) => {
-    const url = new URL(baseUrl + '/site/get-config')
-    const mod = url.protocol === 'https:' ? https : http
+export async function startSsoLogin(config: SsoConfig): Promise<OperateCredentials> {
+  const execPath = findChromium()
+  if (!execPath) {
+    throw new Error(
+      'Cannot find Chromium. Please install Playwright browsers: npx playwright install chromium'
+    )
+  }
 
-    const options: http.RequestOptions = {
-      timeout: 10000,
-      headers: {
-        Cookie: `sso_token=${ssoToken}`,
-        'x-requested-with': 'XMLHttpRequest',
-      },
+  // Navigate to a page that requires auth — this triggers the SSO redirect chain
+  const targetUrl = config.operateBaseUrl + '/multilanguage/edit-language'
+
+  const browser = await chromium.launch({
+    headless: false,
+    executablePath: execPath,
+  })
+
+  try {
+    const context = await browser.newContext({ ignoreHTTPSErrors: true })
+    const page = await context.newPage()
+
+    console.error('[Auth] Launching browser for login...')
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+
+    // Wait for the user to complete login and land back on operate.intsig.net
+    // The URL must be on operate.intsig.net AND not be a redirect to SSO
+    console.error('[Auth] Waiting for user to complete login (up to 180s)...')
+    await page.waitForURL(url => {
+      const u = typeof url === 'string' ? new URL(url) : url
+      return u.hostname === 'operate.intsig.net'
+    }, { timeout: 180000 })
+
+    // Ensure the page is fully loaded
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {})
+
+    // Extract all cookies
+    const cookies = await context.cookies()
+    const operateCookies = cookies.filter(c =>
+      c.domain.includes('intsig.net') || c.domain.includes('operate')
+    )
+    const sessionCookie = operateCookies
+      .map(c => `${c.name}=${c.value}`)
+      .join('; ')
+
+    if (!sessionCookie) {
+      throw new Error('No cookies captured after login. Please try again.')
     }
 
-    const req = mod.get(url.toString(), options, (res) => {
-      const rawCookies = res.headers['set-cookie'] || []
-      const cookiePairs: string[] = []
+    // Navigate to /site/get-config to extract CSRF token
+    // (the SPA landing page doesn't contain it, but get-config always returns the HTML with _csrf)
+    await page.goto(config.operateBaseUrl + '/site/get-config', { waitUntil: 'domcontentloaded', timeout: 15000 })
 
-      for (const c of rawCookies) {
-        const m = c.match(/^([^=]+)=([^;]*)/)
-        if (m) {
-          cookiePairs.push(`${m[1]}=${m[2]}`)
-        }
-      }
-      cookiePairs.push(`sso_token=${ssoToken}`)
-      const sessionCookie = cookiePairs.join('; ')
+    // Re-capture cookies (get-config may refresh JSESSID)
+    const refreshedCookies = await context.cookies()
+    const allCookies = refreshedCookies.filter(c =>
+      c.domain.includes('intsig.net') || c.domain.includes('operate')
+    )
+    const finalCookie = allCookies.map(c => `${c.name}=${c.value}`).join('; ')
 
-      let body = ''
-      res.on('data', (chunk: string) => (body += chunk))
-      res.on('end', () => {
-        let csrfToken = ''
-        const fieldMatch = body.match(/name="_csrf"\s+value="([^"]+)"/)
-        if (fieldMatch) {
-          csrfToken = fieldMatch[1]
-        } else {
-          // Fallback: try to extract from meta tag or alternative pattern
-          const altMatch = body.match(/value="([^"]+)"\s*>/)
-          if (altMatch) csrfToken = altMatch[1]
-        }
+    let csrfToken = ''
+    try {
+      csrfToken = await page.evaluate(`
+        (() => {
+          const el = document.querySelector('input[name="_csrf"]');
+          return el ? el.value : '';
+        })()
+      `) as string
+    } catch { /* ignore */ }
 
-        if (!csrfToken) {
-          reject(new Error(
-            `Failed to extract CSRF token from operate platform. Status: ${res.statusCode}. ` +
-            `Response length: ${body.length}. Try 'logout' then 'authenticate' again.`
-          ))
-          return
-        }
+    if (!csrfToken) {
+      const html = await page.content()
+      const match = html.match(/name="_csrf"\s+value="([^"]+)"/)
+      if (match) csrfToken = match[1]
+    }
 
-        resolve({
-          ssoToken,
-          sessionCookie,
-          csrfToken,
-          expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-        })
-      })
-    })
+    if (!csrfToken) {
+      throw new Error('Login succeeded but failed to extract CSRF token. Please try again.')
+    }
 
-    req.on('error', reject)
-    req.on('timeout', () => {
-      req.destroy()
-      reject(new Error('Session fetch timeout'))
-    })
-  })
+    console.error('[Auth] Login successful! Cookies and CSRF token captured.')
+
+    return {
+      ssoToken: '',
+      sessionCookie: finalCookie,
+      csrfToken,
+      expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+    }
+  } finally {
+    await browser.close()
+  }
 }
