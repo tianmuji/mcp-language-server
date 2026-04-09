@@ -1,0 +1,416 @@
+#!/usr/bin/env node
+
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { z } from 'zod/v3'
+import fs from 'fs'
+import path from 'path'
+import { OperateClient } from './operate-client.js'
+import { loadCredentials, saveCredentials, clearCredentials, startSsoLogin } from './auth.js'
+import type { OperateCredentials } from './operate-client.js'
+
+// --- Config from env ---
+const OPERATE_BASE_URL = process.env.OPERATE_BASE_URL
+const SSO_LOGIN_URL = process.env.SSO_LOGIN_URL || 'https://web-sso.intsig.net/login'
+const SSO_PLATFORM_ID = process.env.SSO_PLATFORM_ID || 'OdliDeAnVtlUA5cGwwxZPHUyXtqPCcNw'
+const SSO_CALLBACK_DOMAIN = process.env.SSO_CALLBACK_DOMAIN
+const SSO_CALLBACK_PORT = parseInt(process.env.SSO_CALLBACK_PORT || '9877', 10)
+
+if (!OPERATE_BASE_URL) {
+  console.error('Error: OPERATE_BASE_URL environment variable is required')
+  process.exit(1)
+}
+if (!SSO_CALLBACK_DOMAIN) {
+  console.error('Error: SSO_CALLBACK_DOMAIN environment variable is required')
+  process.exit(1)
+}
+
+const ssoConfig = {
+  ssoLoginUrl: SSO_LOGIN_URL,
+  platformId: SSO_PLATFORM_ID,
+  callbackDomain: SSO_CALLBACK_DOMAIN,
+  callbackPort: SSO_CALLBACK_PORT,
+  operateBaseUrl: OPERATE_BASE_URL,
+}
+
+const client = new OperateClient(OPERATE_BASE_URL)
+
+// --- Constants ---
+
+const PRODUCT_MAP: Record<number, string> = {
+  1: 'CamCard',
+  2: 'CamScanner',
+  44: 'CamScanner Lite',
+  47: 'CS PDF',
+  53: 'CS Harmony',
+}
+
+const LANGUAGE_LOCALE_MAP: Record<string, string> = {
+  '1': 'ZhCn',
+  '2': 'EnUs',
+  '3': 'JaJp',
+  '4': 'KoKr',
+  '5': 'FrFr',
+  '6': 'DeDe',
+  '7': 'ZhTw',
+  '8': 'PtBr',
+  '9': 'EsEs',
+  '10': 'ItIt',
+  '11': 'RuRu',
+  '12': 'TrTr',
+  '13': 'ArSa',
+  '14': 'ThTh',
+  '15': 'PlPl',
+  '16': 'ViVn',
+  '17': 'InId',
+  '19': 'MsMy',
+  '20': 'NlNl',
+  '22': 'HiDi',
+  '23': 'BnBd',
+  '24': 'CsCs',
+  '25': 'SkSk',
+  '26': 'FilPh',
+  '27': 'ElEl',
+  '28': 'PtPt',
+  '29': 'RoRo',
+}
+
+// --- Helpers ---
+
+function fixPlaceholders(value: string): string {
+  let cnt = 0
+  return value
+    .replace(/%s/g, () => `{${cnt++}}`)
+    .replace(/\\"/g, '"')
+    .replace(/\\n/g, '\n')
+}
+
+function extractStrings(versions: any[], platformId: string): Record<string, Record<string, string>> {
+  const result: Record<string, Record<string, string>> = {}
+  for (const version of versions) {
+    const strings = version.ar_string || version.strings || []
+    const languages: string[] = version.ar_language || []
+    for (const str of strings) {
+      const key = str.keys?.[platformId] || str.keys?.['0'] || Object.values(str.keys || {})[0] as string
+      if (!key) continue
+      for (const langId of languages) {
+        const value = str.values?.[langId]
+        if (!value) continue
+        if (!result[langId]) result[langId] = {}
+        result[langId][key] = fixPlaceholders(value)
+      }
+    }
+  }
+  return result
+}
+
+// --- Auth helper ---
+
+async function requireAuth(): Promise<string | null> {
+  if (!client.isAuthenticated()) {
+    const savedCreds = await loadCredentials()
+    if (savedCreds) {
+      client.setCredentials(savedCreds)
+      console.error('Restored saved credentials (valid until ' + new Date(savedCreds.expiresAt).toLocaleString() + ')')
+    }
+  }
+  if (!client.isAuthenticated()) {
+    return "Not authenticated. Please call the 'authenticate' tool first to login via SSO."
+  }
+  return null
+}
+
+// --- MCP Server ---
+
+const server = new McpServer({
+  name: 'language-server',
+  version: '1.0.0',
+})
+
+// Tool: authenticate
+server.tool(
+  'authenticate',
+  'Login to operate platform via SSO QR code scan. Opens browser for authentication.',
+  {},
+  async () => {
+    if (client.isAuthenticated()) {
+      return { content: [{ type: 'text', text: "Already authenticated. Use 'logout' tool to re-authenticate." }] }
+    }
+    try {
+      const creds = await startSsoLogin(ssoConfig)
+      client.setCredentials(creds)
+      await saveCredentials(creds)
+      return { content: [{ type: 'text', text: 'Authentication successful! You can now use all language tools.' }] }
+    } catch (err: any) {
+      if (err.message?.includes('pre-verification')) {
+        return {
+          content: [{
+            type: 'text',
+            text: 'SSO pre-verification completed (no token returned yet). ' +
+              'Please call \'authenticate\' again immediately to complete authentication.',
+          }],
+        }
+      }
+      return { content: [{ type: 'text', text: `Authentication failed: ${err.message}` }] }
+    }
+  }
+)
+
+// Tool: logout
+server.tool(
+  'logout',
+  'Clear saved credentials and logout.',
+  {},
+  async () => {
+    await clearCredentials()
+    client.setCredentials(null)
+    return { content: [{ type: 'text', text: "Logged out. Call 'authenticate' to login again." }] }
+  }
+)
+
+// Tool: get-version-list
+server.tool(
+  'get-version-list',
+  '获取指定产品的多语言版本列表。返回每个版本的 version_id、版本号、支持的平台和语言。',
+  {
+    product_id: z.string().describe(
+      `产品ID。常用值: ${Object.entries(PRODUCT_MAP).map(([k, v]) => `${k}=${v}`).join(', ')}`
+    ),
+  },
+  async ({ product_id }) => {
+    const authErr = await requireAuth()
+    if (authErr) return { content: [{ type: 'text', text: authErr }] }
+
+    const data = await client.post('/language/language/get-version-list', { product_id })
+    if (data.errno !== 0) {
+      return { content: [{ type: 'text', text: `错误: ${data.message || JSON.stringify(data)}` }] }
+    }
+
+    const list = data.data.list || []
+    const summary = list
+      .map((v: any) =>
+        `- version_id=${v.version_id}, version=${v.version_number}, platforms=${v.platforms}, languages=${v.supported_languages}`
+      )
+      .join('\n')
+    return { content: [{ type: 'text', text: `共 ${data.data.total} 个版本:\n${summary}` }] }
+  }
+)
+
+// Tool: search-string
+server.tool(
+  'search-string',
+  '按关键词搜索多语言字符串。可指定版本精准搜索,返回 string_id、key、中英文翻译等信息。',
+  {
+    product_id: z.string().describe('产品ID,如 2 表示 CamScanner'),
+    word: z.string().describe('搜索关键词(中文或英文)'),
+    version_id: z.string().optional().describe('版本ID,不传则搜索所有版本'),
+    fuzzy: z.string().optional().default('1').describe('1=模糊匹配,0=精确匹配'),
+    page: z.string().optional().default('1').describe('页码'),
+    page_size: z.string().optional().default('20').describe('每页条数,最大100'),
+  },
+  async ({ product_id, word, version_id, fuzzy, page, page_size }) => {
+    const authErr = await requireAuth()
+    if (authErr) return { content: [{ type: 'text', text: authErr }] }
+
+    const params: Record<string, string> = { product_id, word, fuzzy: fuzzy || '1', page: page || '1', page_size: page_size || '20' }
+    if (version_id) params.version_id = version_id
+
+    const data = await client.post('/language/language/get-string-search', params)
+    if (data.errno !== 0) {
+      return { content: [{ type: 'text', text: `错误: ${data.message || JSON.stringify(data)}` }] }
+    }
+
+    const versions = Array.isArray(data.data) ? data.data : (data.data?.list || [])
+    if (versions.length === 0) {
+      return { content: [{ type: 'text', text: `未找到匹配 "${word}" 的字符串` }] }
+    }
+
+    let output = `共 ${versions.length} 个版本有匹配结果:\n\n`
+    for (const version of versions) {
+      output += `## 版本 ${version.version_number} (version_id=${version.version_id})\n`
+      const strings = version.ar_string || version.strings || []
+      for (const str of strings) {
+        const keys = str.keys
+          ? Object.entries(str.keys).map(([p, k]) => `platform_${p}: ${k}`).join(', ')
+          : '无'
+        const zhCN = str.values?.['1'] || str.values?.['0'] || ''
+        const enUS = str.values?.['2'] || str.values?.['0'] || ''
+        const zhTW = str.values?.['7'] || ''
+        output += `- string_id: ${str.id}\n`
+        output += `  key: ${keys}\n`
+        output += `  中文: ${zhCN}\n`
+        output += `  英文: ${enUS}\n`
+        if (zhTW) output += `  繁体: ${zhTW}\n`
+        output += '\n'
+      }
+    }
+    return { content: [{ type: 'text', text: output }] }
+  }
+)
+
+// Tool: export-string
+server.tool(
+  'export-string',
+  '搜索多语言字符串并导出为兼容 cs-i18n 的 locale JSON 格式。支持单语言或全部语言导出,自动将 %s 替换为 {0}/{1}/{2}。',
+  {
+    product_id: z.string().describe('产品ID,如 2 表示 CamScanner'),
+    word: z.string().describe('搜索关键词(中文或英文)'),
+    version_id: z.string().optional().describe('版本ID,不传则搜索所有版本'),
+    platform_id: z.string().optional().default('4').describe('平台ID,用于选择 key: 1=Android, 3=iOS, 4=Web'),
+    language_id: z.string().optional().describe('目标语言ID,不传则导出所有语言。常用: 1=中文, 2=英文, 7=繁体中文'),
+  },
+  async ({ product_id, word, version_id, platform_id, language_id }) => {
+    const authErr = await requireAuth()
+    if (authErr) return { content: [{ type: 'text', text: authErr }] }
+
+    const params: Record<string, string> = { product_id, word, fuzzy: '1', page: '1', page_size: '100' }
+    if (version_id) params.version_id = version_id
+
+    const data = await client.post('/language/language/get-string-search', params)
+    if (data.errno !== 0) {
+      return { content: [{ type: 'text', text: `错误: ${data.message || JSON.stringify(data)}` }] }
+    }
+
+    const versions = Array.isArray(data.data) ? data.data : (data.data?.list || [])
+    if (versions.length === 0) {
+      return { content: [{ type: 'text', text: `未找到匹配 "${word}" 的字符串` }] }
+    }
+
+    const allStrings = extractStrings(versions, platform_id || '4')
+
+    if (language_id) {
+      const localeObj = allStrings[language_id] || {}
+      if (Object.keys(localeObj).length === 0) {
+        return { content: [{ type: 'text', text: `找到字符串但语言ID=${language_id} 无翻译内容` }] }
+      }
+      const localeName = LANGUAGE_LOCALE_MAP[language_id] || `lang_${language_id}`
+      const json = JSON.stringify(localeObj, null, 2)
+      return {
+        content: [{
+          type: 'text',
+          text: `导出 ${Object.keys(localeObj).length} 条字符串 → ${localeName}.json:\n\n\`\`\`json\n${json}\n\`\`\``,
+        }],
+      }
+    }
+
+    let output = `共匹配 ${Object.keys(allStrings).length} 种语言:\n\n`
+    for (const [langId, localeObj] of Object.entries(allStrings)) {
+      const localeName = LANGUAGE_LOCALE_MAP[langId] || `lang_${langId}`
+      const json = JSON.stringify(localeObj, null, 2)
+      output += `### ${localeName}.json (语言ID=${langId}, ${Object.keys(localeObj).length} 条)\n\`\`\`json\n${json}\n\`\`\`\n\n`
+    }
+    return { content: [{ type: 'text', text: output }] }
+  }
+)
+
+// Tool: write-locales
+server.tool(
+  'write-locales',
+  '搜索多语言字符串并直接写入项目的 locales 目录,兼容 cs-i18n 工具格式。自动合并到已有的 locale JSON 文件,%s 自动替换为 {0}/{1}/{2}。',
+  {
+    product_id: z.string().describe('产品ID,如 2 表示 CamScanner'),
+    word: z.string().describe('搜索关键词(中文或英文)'),
+    locales_path: z.string().describe('locales 目录的绝对路径,如 /Users/xxx/project/src/locales'),
+    version_id: z.string().optional().describe('版本ID,不传则搜索所有版本'),
+    platform_id: z.string().optional().default('4').describe('平台ID,用于选择 key: 1=Android, 3=iOS, 4=Web'),
+  },
+  async ({ product_id, word, locales_path, version_id, platform_id }) => {
+    const authErr = await requireAuth()
+    if (authErr) return { content: [{ type: 'text', text: authErr }] }
+
+    if (!fs.existsSync(locales_path)) {
+      return { content: [{ type: 'text', text: `错误: locales 目录不存在: ${locales_path}` }] }
+    }
+
+    const params: Record<string, string> = { product_id, word, fuzzy: '1', page: '1', page_size: '100' }
+    if (version_id) params.version_id = version_id
+
+    const data = await client.post('/language/language/get-string-search', params)
+    if (data.errno !== 0) {
+      return { content: [{ type: 'text', text: `错误: ${data.message || JSON.stringify(data)}` }] }
+    }
+
+    const versions = Array.isArray(data.data) ? data.data : (data.data?.list || [])
+    if (versions.length === 0) {
+      return { content: [{ type: 'text', text: `未找到匹配 "${word}" 的字符串` }] }
+    }
+
+    const allStrings = extractStrings(versions, platform_id || '4')
+
+    const results: string[] = []
+    let totalKeys = 0
+    let filesWritten = 0
+    let filesSkipped = 0
+
+    for (const [langId, newEntries] of Object.entries(allStrings)) {
+      const localeName = LANGUAGE_LOCALE_MAP[langId]
+      if (!localeName) { filesSkipped++; continue }
+
+      const filePath = path.join(locales_path, `${localeName}.json`)
+      if (!fs.existsSync(filePath)) { filesSkipped++; continue }
+
+      let existingObj: Record<string, string> = {}
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8')
+        existingObj = JSON.parse(content)
+      } catch {
+        // empty or invalid file
+      }
+
+      // Fix existing %s placeholders
+      for (const key of Object.keys(existingObj)) {
+        if (typeof existingObj[key] === 'string' && existingObj[key].includes('%s')) {
+          existingObj[key] = fixPlaceholders(existingObj[key])
+        }
+      }
+
+      // Preserve insert_before_this_line marker
+      const insertMarker = existingObj['insert_before_this_line']
+      delete existingObj['insert_before_this_line']
+
+      const keysAdded: string[] = []
+      const keysUpdated: string[] = []
+      for (const [key, value] of Object.entries(newEntries)) {
+        if (existingObj[key] === undefined) {
+          keysAdded.push(key)
+        } else if (existingObj[key] !== value) {
+          keysUpdated.push(key)
+        }
+        existingObj[key] = value
+      }
+
+      if (insertMarker) {
+        existingObj['insert_before_this_line'] = insertMarker
+      }
+
+      fs.writeFileSync(filePath, JSON.stringify(existingObj, null, 2) + '\n')
+      filesWritten++
+      totalKeys += Object.keys(newEntries).length
+      if (keysAdded.length > 0 || keysUpdated.length > 0) {
+        results.push(`${localeName}.json: +${keysAdded.length} 新增, ~${keysUpdated.length} 更新`)
+      } else {
+        results.push(`${localeName}.json: 无变化 (${Object.keys(newEntries).length} 条已存在)`)
+      }
+    }
+
+    let output = `写入完成!\n`
+    output += `- 目录: ${locales_path}\n`
+    output += `- 写入 ${filesWritten} 个文件, 跳过 ${filesSkipped} 个 (项目中不存在)\n`
+    output += `- 共 ${totalKeys} 条字符串\n\n`
+    output += results.map(r => `  ${r}`).join('\n')
+
+    return { content: [{ type: 'text', text: output }] }
+  }
+)
+
+// --- Start ---
+async function main() {
+  const transport = new StdioServerTransport()
+  await server.connect(transport)
+  console.error('Language MCP Server running on stdio')
+}
+
+main().catch((err) => {
+  console.error('Fatal error:', err)
+  process.exit(1)
+})

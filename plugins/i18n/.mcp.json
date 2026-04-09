@@ -1,12 +1,12 @@
 {
   "language": {
-    "command": "node",
-    "args": ["${HOME}/mcp-language-server/index.js"],
+    "command": "npx",
+    "args": ["-y", "git+https://github.com/tianmuji/mcp-language-server.git"],
     "env": {
       "OPERATE_BASE_URL": "https://operate.intsig.net",
       "SSO_LOGIN_URL": "https://web-sso.intsig.net/login",
       "SSO_PLATFORM_ID": "OdliDeAnVtlUA5cGwwxZPHUyXtqPCcNw",
-      "SSO_CALLBACK_DOMAIN": "https://static-cdn.camscanner.com/camscanner-activity/mcp-auth-callback.html",
+      "SSO_CALLBACK_DOMAIN": "https://www-sandbox.camscanner.com/activity/mcp-auth-callback",
       "SSO_CALLBACK_PORT": "9877"
     }
   }

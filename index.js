@@ -20,14 +20,14 @@ const __dirname = nodePath.dirname(fileURLToPath(import.meta.url));
 
 const SSO_LOGIN_URL = process.env.SSO_LOGIN_URL || "https://web-sso.intsig.net/login";
 const SSO_PLATFORM_ID = process.env.SSO_PLATFORM_ID || "OdliDeAnVtlUA5cGwwxZPHUyXtqPCcNw";
-const SSO_CALLBACK_DOMAIN = process.env.SSO_CALLBACK_DOMAIN || "https://static-cdn.camscanner.com/camscanner-activity/mcp-auth-callback.html";
+const SSO_CALLBACK_DOMAIN = process.env.SSO_CALLBACK_DOMAIN || "https://www-sandbox.camscanner.com/activity/mcp-auth-callback";
 const SSO_CALLBACK_PORT = parseInt(process.env.SSO_CALLBACK_PORT || "9877", 10);
 
 const credentialsManager = createCredentialsManager("language-mcp");
 const { load: loadCredentials, save: saveCredentials, clear: clearCredentials } = credentialsManager;
 
-/** Fetch CSRF token from operate platform using sso_token */
-function fetchCsrfToken(baseUrl, ssoToken) {
+/** Fetch session cookies and CSRF token from operate platform using sso_token */
+function fetchSessionInfo(baseUrl, ssoToken) {
   return new Promise((resolve, reject) => {
     const url = new URL(baseUrl + "/site/get-config");
     const mod = url.protocol === "https:" ? https : http;
@@ -39,24 +39,38 @@ function fetchCsrfToken(baseUrl, ssoToken) {
       },
     };
     const req = mod.get(url.toString(), options, (res) => {
-      const cookies = res.headers["set-cookie"] || [];
-      let csrf = "";
-      for (const c of cookies) {
-        const m = c.match(/^_csrf=([^;]*)/);
-        if (m) { csrf = m[1]; break; }
+      // Capture all cookies from set-cookie headers
+      const rawCookies = res.headers["set-cookie"] || [];
+      const cookiePairs = [];
+      let csrfCookie = "";
+      for (const c of rawCookies) {
+        const m = c.match(/^([^=]+)=([^;]*)/);
+        if (m) {
+          cookiePairs.push(`${m[1]}=${m[2]}`);
+          if (m[1] === "_csrf") csrfCookie = m[2];
+        }
       }
+      // Also include sso_token in the cookie string
+      cookiePairs.push(`sso_token=${ssoToken}`);
+      const sessionCookie = cookiePairs.join("; ");
+
       let body = "";
       res.on("data", (chunk) => (body += chunk));
       res.on("end", () => {
-        if (!csrf) {
-          const bodyMatch = body.match(/csrf[_-]token['":\s]+['"]([^'"]+)/i);
-          if (bodyMatch) csrf = bodyMatch[1];
+        // Extract client-side CSRF token from hidden form field
+        let csrfToken = "";
+        const fieldMatch = body.match(/name="_csrf"\s+value="([^"]+)"/);
+        if (fieldMatch) {
+          csrfToken = fieldMatch[1];
+        } else {
+          const altMatch = body.match(/value="([^"]+)"\s*>/);
+          if (altMatch && csrfCookie) csrfToken = altMatch[1];
         }
-        resolve(csrf);
+        resolve({ sessionCookie, csrfToken });
       });
     });
     req.on("error", reject);
-    req.on("timeout", () => { req.destroy(); reject(new Error("CSRF fetch timeout")); });
+    req.on("timeout", () => { req.destroy(); reject(new Error("Session fetch timeout")); });
   });
 }
 
@@ -89,7 +103,7 @@ function loadFile(filename) {
 }
 
 // 基础配置
-const BASE_URL = process.env.OPERATE_BASE_URL || "https://operate-test.intsig.net";
+const BASE_URL = process.env.OPERATE_BASE_URL || "https://operate.intsig.net";
 const PORT = parseInt(process.env.PORT || "3100", 10);
 const MODE = process.argv.includes("--http") ? "http" : "stdio";
 
@@ -168,11 +182,16 @@ function extractStrings(versions, platformId) {
 async function operatePost(urlPath, params) {
   let cookie, csrfToken;
 
+  // Extra cookies from file/env (e.g. nginx st cookie)
+  const extraCookie = loadFile(".cookie") || process.env.OPERATE_COOKIE || "";
+
   if (isAuthenticated()) {
-    cookie = `sso_token=${currentCredentials.ssoToken}`;
-    csrfToken = currentCredentials.csrfToken || "";
+    const ssoCookie = currentCredentials.sessionCookie || `sso_token=${currentCredentials.ssoToken}`;
+    // SSO cookie 优先，extraCookie 作为补充放在后面
+    cookie = extraCookie ? `${ssoCookie}; ${extraCookie}` : ssoCookie;
+    csrfToken = currentCredentials.csrfToken || loadFile(".csrf-token") || process.env.OPERATE_CSRF_TOKEN || "";
   } else {
-    cookie = loadFile(".cookie") || process.env.OPERATE_COOKIE || "";
+    cookie = extraCookie;
     csrfToken = loadFile(".csrf-token") || process.env.OPERATE_CSRF_TOKEN || "";
   }
 
@@ -232,8 +251,8 @@ function registerTools(server) {
           callbackPort: SSO_CALLBACK_PORT,
           serverName: "多语言 MCP Server",
           async exchangeToken(ssoToken) {
-            const csrfToken = await fetchCsrfToken(BASE_URL, ssoToken);
-            const result = { ssoToken, csrfToken, expiresAt: Date.now() + 24 * 60 * 60 * 1000 };
+            const { sessionCookie, csrfToken } = await fetchSessionInfo(BASE_URL, ssoToken);
+            const result = { ssoToken, sessionCookie, csrfToken, expiresAt: Date.now() + 24 * 60 * 60 * 1000 };
             saveCredentials(result);
             return result;
           },
@@ -272,6 +291,8 @@ function registerTools(server) {
         ),
     },
     async ({ product_id }) => {
+      const authError = requireAuth();
+      if (authError) return { content: [{ type: "text", text: authError }] };
       const data = await operatePost(
         "/language/language/get-version-list",
         { product_id }
@@ -328,6 +349,8 @@ function registerTools(server) {
         .describe("每页条数，最大100"),
     },
     async ({ product_id, word, version_id, fuzzy, page, page_size }) => {
+      const authError = requireAuth();
+      if (authError) return { content: [{ type: "text", text: authError }] };
       const params = { product_id, word, fuzzy, page, page_size };
       if (version_id) params.version_id = version_id;
 
@@ -405,6 +428,8 @@ function registerTools(server) {
         ),
     },
     async ({ product_id, word, version_id, platform_id, language_id }) => {
+      const authError = requireAuth();
+      if (authError) return { content: [{ type: "text", text: authError }] };
       const params = { product_id, word, fuzzy: "1", page: "1", page_size: "100" };
       if (version_id) params.version_id = version_id;
 
@@ -477,6 +502,8 @@ function registerTools(server) {
         .describe("平台ID，用于选择 key: 1=Android, 3=iOS, 4=Web"),
     },
     async ({ product_id, word, locales_path, version_id, platform_id }) => {
+      const authError = requireAuth();
+      if (authError) return { content: [{ type: "text", text: authError }] };
       // 验证 locales 目录存在
       if (!fs.existsSync(locales_path)) {
         return {
