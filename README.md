@@ -1,11 +1,13 @@
 # CamScanner i18n MCP Language Server
 
-用于 Claude Code 的多语言字符串管理插件，支持从 CamScanner 运营平台搜索、导出、写入多语言字符串。
+用于 Claude Code 的多语言字符串管理 MCP Server，支持从 CamScanner 运营平台搜索、导出、写入多语言字符串。
 
 ## 功能
 
 | 工具 | 说明 |
 |------|------|
+| `authenticate` | SSO 扫码登录 |
+| `logout` | 退出登录，清除凭证 |
 | `search-string` | 按关键词搜索多语言字符串 |
 | `export-string` | 导出为 cs-i18n 兼容的 locale JSON |
 | `write-locales` | 将字符串直接写入项目 locales 目录 |
@@ -13,7 +15,19 @@
 
 ## 安装
 
-### 方式一：npx 直接使用（无需克隆）
+### 方式一：插件安装（推荐）
+
+```bash
+# 1. 添加市场（仅首次）
+claude plugin marketplace add tianmuji/camscanner-plugins
+
+# 2. 安装插件
+claude plugin install i18n@camscanner-plugins
+```
+
+插件安装后会自动注册 MCP Server 和 `/i18n` Skill。重启 Claude Code 即可使用。
+
+### 方式二：手动配置 MCP
 
 编辑 `~/.claude/.mcp.json`，在 `mcpServers` 中添加：
 
@@ -22,12 +36,12 @@
   "mcpServers": {
     "language": {
       "command": "npx",
-      "args": ["-y", "github:tianmuji/mcp-language-server"],
+      "args": ["-y", "git+https://github.com/tianmuji/mcp-language-server.git"],
       "env": {
         "OPERATE_BASE_URL": "https://operate.intsig.net",
         "SSO_LOGIN_URL": "https://web-sso.intsig.net/login",
         "SSO_PLATFORM_ID": "OdliDeAnVtlUA5cGwwxZPHUyXtqPCcNw",
-        "SSO_CALLBACK_DOMAIN": "https://static-cdn.camscanner.com/camscanner-activity/mcp-auth-callback.html",
+        "SSO_CALLBACK_DOMAIN": "https://www-sandbox.camscanner.com/activity/mcp-auth-callback",
         "SSO_CALLBACK_PORT": "9877"
       }
     }
@@ -35,18 +49,7 @@
 }
 ```
 
-重启 Claude Code
-
-无需克隆仓库，`npx` 会自动从 GitHub 下载并运行。
-
-### 方式二：插件安装（含 /i18n Skill）
-
-```bash
-git clone git@github.com:tianmuji/mcp-language-server.git ~/mcp-language-server
-cd ~/mcp-language-server && npm install && bash setup.sh
-```
-
-插件安装后会自动注册 MCP Server 和 `/i18n` Skill。重启 Claude Code 即可使用。
+重启 Claude Code，无需克隆仓库，`npx` 会自动从 GitHub 下载并运行。
 
 ## 使用方式
 
@@ -91,27 +94,42 @@ cd ~/mcp-language-server && npm install && bash setup.sh
 
 ```
 mcp-language-server/
-├── .claude-plugin/
-│   └── marketplace.json    # Marketplace 配置
+├── src/                        # TypeScript 源码
+│   ├── index.ts                # MCP 入口 + 工具注册
+│   ├── auth.ts                 # SSO 认证模块
+│   ├── operate-client.ts       # 原生 HTTP 客户端
+│   └── mcp-sso-auth.d.ts      # 类型声明
+├── dist/                       # 编译产出（npx 运行入口）
+│   ├── index.js
+│   ├── auth.js
+│   └── operate-client.js
 ├── plugins/
 │   └── i18n/
 │       ├── .claude-plugin/
-│       │   └── plugin.json # 插件元数据
-│       ├── .mcp.json       # MCP Server 自动注册配置
+│       │   └── plugin.json     # 插件元数据
+│       ├── .mcp.json           # MCP Server 注册配置（npx 模式）
 │       └── skills/
 │           └── i18n/
-│               └── SKILL.md  # /i18n Skill 定义
-├── index.js                # MCP Server 主文件
-├── setup.sh                # 一键安装脚本
-├── update-cookie.sh        # Cookie 快速更新脚本
+│               └── SKILL.md    # /i18n Skill 定义
 ├── package.json
-├── .cookie                 # Cookie 认证文件（不提交）
-├── .csrf-token             # CSRF Token 文件（不提交）
+├── tsconfig.json
 └── .gitignore
+```
+
+## 开发
+
+```bash
+git clone git@github.com:tianmuji/mcp-language-server.git
+cd mcp-language-server
+npm install
+npm run build     # tsc 编译
+npm start         # 运行 stdio 模式
 ```
 
 ## 依赖
 
 - Node.js >= 18
 - Claude Code
-- `@modelcontextprotocol/sdk`
+- `@modelcontextprotocol/sdk` — MCP 协议 SDK
+- `mcp-sso-auth` — SSO 认证共享模块
+- `zod` — 参数校验
