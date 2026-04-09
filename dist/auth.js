@@ -71,41 +71,42 @@ async function startSsoLogin(config) {
     if (!execPath) {
         throw new Error('Cannot find Chromium. Please install Playwright browsers: npx playwright install chromium');
     }
+    // Persistent browser data dir — saves passwords, cookies across sessions
+    const userDataDir = path_1.default.join(CREDS_DIR, 'browser-data');
+    if (!fs_1.default.existsSync(userDataDir))
+        fs_1.default.mkdirSync(userDataDir, { recursive: true });
     // Navigate to a page that requires auth — this triggers the SSO redirect chain
     const targetUrl = config.operateBaseUrl + '/multilanguage/edit-language';
-    const browser = await playwright_core_1.chromium.launch({
+    console.error('[Auth] Launching browser for login...');
+    const context = await playwright_core_1.chromium.launchPersistentContext(userDataDir, {
         headless: false,
         executablePath: execPath,
+        ignoreHTTPSErrors: true,
     });
     try {
-        const context = await browser.newContext({ ignoreHTTPSErrors: true });
-        const page = await context.newPage();
-        console.error('[Auth] Launching browser for login...');
+        const page = context.pages()[0] || await context.newPage();
         await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-        // Wait for the user to complete login and land back on operate.intsig.net
-        // The URL must be on operate.intsig.net AND not be a redirect to SSO
-        console.error('[Auth] Waiting for user to complete login (up to 180s)...');
-        await page.waitForURL(url => {
-            const u = typeof url === 'string' ? new URL(url) : url;
-            return u.hostname === 'operate.intsig.net';
-        }, { timeout: 180000 });
+        // If already logged in (browser has valid cookies from previous session), skip waiting
+        const currentHost = new URL(page.url()).hostname;
+        if (currentHost !== 'operate.intsig.net') {
+            console.error('[Auth] Waiting for user to complete login (up to 180s)...');
+            await page.waitForURL(url => {
+                const u = typeof url === 'string' ? new URL(url) : url;
+                return u.hostname === 'operate.intsig.net';
+            }, { timeout: 180000 });
+        }
         // Ensure the page is fully loaded
         await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
         // Extract all cookies
         const cookies = await context.cookies();
         const operateCookies = cookies.filter(c => c.domain.includes('intsig.net') || c.domain.includes('operate'));
-        const sessionCookie = operateCookies
-            .map(c => `${c.name}=${c.value}`)
-            .join('; ');
-        if (!sessionCookie) {
+        if (operateCookies.length === 0) {
             throw new Error('No cookies captured after login. Please try again.');
         }
         // Navigate to /site/get-config to extract CSRF token
-        // (the SPA landing page doesn't contain it, but get-config always returns the HTML with _csrf)
         await page.goto(config.operateBaseUrl + '/site/get-config', { waitUntil: 'domcontentloaded', timeout: 15000 });
         // Re-capture cookies (get-config may refresh JSESSID)
-        const refreshedCookies = await context.cookies();
-        const allCookies = refreshedCookies.filter(c => c.domain.includes('intsig.net') || c.domain.includes('operate'));
+        const allCookies = (await context.cookies()).filter(c => c.domain.includes('intsig.net') || c.domain.includes('operate'));
         const finalCookie = allCookies.map(c => `${c.name}=${c.value}`).join('; ');
         let csrfToken = '';
         try {
@@ -135,6 +136,6 @@ async function startSsoLogin(config) {
         };
     }
     finally {
-        await browser.close();
+        await context.close();
     }
 }
