@@ -25,12 +25,14 @@ const client = new OperateClient(OPERATE_BASE_URL)
 
 // --- Constants ---
 
-const PRODUCT_MAP: Record<number, string> = {
-  1: 'CamCard',
-  2: 'CamScanner',
-  44: 'CamScanner Lite',
-  47: 'CS PDF',
-  53: 'CS Harmony',
+const PLATFORM_MAP: Record<number, string> = {
+  1: 'Android',
+  3: 'iOS',
+  4: 'Web',
+  5: 'Windows',
+  7: 'Market',
+  8: 'Harmony',
+  9: 'PC',
 }
 
 const LANGUAGE_LOCALE_MAP: Record<string, string> = {
@@ -156,14 +158,51 @@ server.tool(
   }
 )
 
+// Tool: list-products
+server.tool(
+  'list-products',
+  '获取多语言平台的所有产品列表。返回产品名称和对应的 product_id。在不确定 product_id 时先调用此工具。',
+  {},
+  async () => {
+    const authErr = await requireAuth()
+    if (authErr) return { content: [{ type: 'text', text: authErr }] }
+
+    const data = await client.post('/common/product/get-product-list', {})
+    if (data.errno !== 0) {
+      return { content: [{ type: 'text', text: `错误: ${data.message || JSON.stringify(data)}` }] }
+    }
+
+    const products = data.data || {}
+    let output = '产品列表:\n\n'
+    output += '| product_id | 产品名称 |\n|---|---|\n'
+    for (const [name, id] of Object.entries(products)) {
+      output += `| ${id} | ${name} |\n`
+    }
+    return { content: [{ type: 'text', text: output }] }
+  }
+)
+
+// Tool: list-platforms
+server.tool(
+  'list-platforms',
+  '获取多语言平台支持的所有平台列表。返回平台名称和对应的 platform_id。',
+  {},
+  async () => {
+    let output = '平台列表:\n\n'
+    output += '| platform_id | 平台名称 |\n|---|---|\n'
+    for (const [id, name] of Object.entries(PLATFORM_MAP)) {
+      output += `| ${id} | ${name} |\n`
+    }
+    return { content: [{ type: 'text', text: output }] }
+  }
+)
+
 // Tool: get-version-list
 server.tool(
   'get-version-list',
   '获取指定产品的多语言版本列表。返回每个版本的 version_id、版本号、支持的平台和语言。',
   {
-    product_id: z.string().describe(
-      `产品ID。常用值: ${Object.entries(PRODUCT_MAP).map(([k, v]) => `${k}=${v}`).join(', ')}`
-    ),
+    product_id: z.string().describe('产品ID,先调用 list-products 查询'),
   },
   async ({ product_id }) => {
     const authErr = await requireAuth()
@@ -176,9 +215,11 @@ server.tool(
 
     const list = data.data.list || []
     const summary = list
-      .map((v: any) =>
-        `- version_id=${v.version_id}, version=${v.version_number}, platforms=${v.platforms}, languages=${v.supported_languages}`
-      )
+      .map((v: any) => {
+        const platformNames = (v.platforms || '').split(',').filter(Boolean)
+          .map((id: string) => PLATFORM_MAP[Number(id)] || `unknown(${id})`).join(', ')
+        return `- version_id=${v.version_id}, version=${v.version_number}, platforms=[${platformNames}], languages=${v.supported_languages}`
+      })
       .join('\n')
     return { content: [{ type: 'text', text: `共 ${data.data.total} 个版本:\n${summary}` }] }
   }
@@ -189,7 +230,9 @@ server.tool(
   'search-string',
   '按关键词搜索多语言字符串。可指定版本精准搜索,返回 string_id、key、中英文翻译等信息。',
   {
-    product_id: z.string().describe('产品ID,如 2 表示 CamScanner'),
+    product_id: z.string().describe(
+      '产品ID,先调用 list-products 查询'
+    ),
     word: z.string().describe('搜索关键词(中文或英文)'),
     version_id: z.string().optional().describe('版本ID,不传则搜索所有版本'),
     fuzzy: z.string().optional().default('1').describe('1=模糊匹配,0=精确匹配'),
@@ -241,10 +284,14 @@ server.tool(
   'export-string',
   '搜索多语言字符串并导出为兼容 cs-i18n 的 locale JSON 格式。支持单语言或全部语言导出,自动将 %s 替换为 {0}/{1}/{2}。',
   {
-    product_id: z.string().describe('产品ID,如 2 表示 CamScanner'),
+    product_id: z.string().describe(
+      '产品ID。常用: 1=CamCard, 2=CamScanner, 44=CS Lite, 47=CS PDF, 53=CS Harmony'
+    ),
     word: z.string().describe('搜索关键词(中文或英文)'),
     version_id: z.string().optional().describe('版本ID,不传则搜索所有版本'),
-    platform_id: z.string().optional().default('4').describe('平台ID,用于选择 key: 1=Android, 3=iOS, 4=Web'),
+    platform_id: z.string().optional().default('4').describe(
+      '平台ID,先调用 list-platforms 查询。默认4=Web'
+    ),
     language_id: z.string().optional().describe('目标语言ID,不传则导出所有语言。常用: 1=中文, 2=英文, 7=繁体中文'),
   },
   async ({ product_id, word, version_id, platform_id, language_id }) => {
@@ -296,11 +343,15 @@ server.tool(
   'write-locales',
   '搜索多语言字符串并直接写入项目的 locales 目录,兼容 cs-i18n 工具格式。自动合并到已有的 locale JSON 文件,%s 自动替换为 {0}/{1}/{2}。',
   {
-    product_id: z.string().describe('产品ID,如 2 表示 CamScanner'),
+    product_id: z.string().describe(
+      '产品ID。常用: 1=CamCard, 2=CamScanner, 44=CS Lite, 47=CS PDF, 53=CS Harmony'
+    ),
     word: z.string().describe('搜索关键词(中文或英文)'),
-    locales_path: z.string().describe('locales 目录的绝对路径,如 /Users/xxx/project/src/locales'),
+    locales_path: z.string().describe('locales 目录的绝对路径（需动态检测，不要硬编码）'),
     version_id: z.string().optional().describe('版本ID,不传则搜索所有版本'),
-    platform_id: z.string().optional().default('4').describe('平台ID,用于选择 key: 1=Android, 3=iOS, 4=Web'),
+    platform_id: z.string().optional().default('4').describe(
+      '平台ID,先调用 list-platforms 查询。默认4=Web'
+    ),
   },
   async ({ product_id, word, locales_path, version_id, platform_id }) => {
     const authErr = await requireAuth()
