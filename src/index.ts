@@ -139,7 +139,7 @@ server.tool(
     const authErr = await requireAuth()
     if (authErr) return { content: [{ type: 'text', text: authErr }] }
 
-    const data = await client.post('/language/language/get-version-list', { product_id })
+    const data = await client.post('/language/mcp-language/get-version-list', { product_id })
     if (data.errno !== 0) {
       return { content: [{ type: 'text', text: `错误: ${data.message || JSON.stringify(data)}` }] }
     }
@@ -177,7 +177,7 @@ server.tool(
     const params: Record<string, string> = { product_id, word, fuzzy: fuzzy || '1', page: page || '1', page_size: page_size || '20' }
     if (version_id) params.version_id = version_id
 
-    const data = await client.post('/language/language/get-string-search', params)
+    const data = await client.post('/language/mcp-language/get-string-search', params)
     if (data.errno !== 0) {
       return { content: [{ type: 'text', text: `错误: ${data.message || JSON.stringify(data)}` }] }
     }
@@ -224,15 +224,16 @@ server.tool(
       '平台ID,先调用 list-platforms 查询。默认4=Web'
     ),
     language_id: z.string().optional().describe('目标语言ID,不传则导出所有语言。常用: 1=中文, 2=英文, 7=繁体中文'),
+    fuzzy: z.string().optional().default('0').describe('0=精确匹配(默认,只导出完全一致的字符串), 1=模糊匹配'),
   },
-  async ({ product_id, word, version_id, platform_id, language_id }) => {
+  async ({ product_id, word, version_id, platform_id, language_id, fuzzy }) => {
     const authErr = await requireAuth()
     if (authErr) return { content: [{ type: 'text', text: authErr }] }
 
-    const params: Record<string, string> = { product_id, word, fuzzy: '1', page: '1', page_size: '100' }
+    const params: Record<string, string> = { product_id, word, fuzzy: fuzzy || '0', page: '1', page_size: '100' }
     if (version_id) params.version_id = version_id
 
-    const data = await client.post('/language/language/get-string-search', params)
+    const data = await client.post('/language/mcp-language/get-string-search', params)
     if (data.errno !== 0) {
       return { content: [{ type: 'text', text: `错误: ${data.message || JSON.stringify(data)}` }] }
     }
@@ -283,8 +284,9 @@ server.tool(
     platform_id: z.string().optional().default('4').describe(
       '平台ID,先调用 list-platforms 查询。默认4=Web'
     ),
+    fuzzy: z.string().optional().default('0').describe('0=精确匹配(默认,只写入完全一致的字符串), 1=模糊匹配'),
   },
-  async ({ product_id, word, locales_path, version_id, platform_id }) => {
+  async ({ product_id, word, locales_path, version_id, platform_id, fuzzy }) => {
     const authErr = await requireAuth()
     if (authErr) return { content: [{ type: 'text', text: authErr }] }
 
@@ -292,10 +294,10 @@ server.tool(
       return { content: [{ type: 'text', text: `错误: locales 目录不存在: ${locales_path}` }] }
     }
 
-    const params: Record<string, string> = { product_id, word, fuzzy: '1', page: '1', page_size: '100' }
+    const params: Record<string, string> = { product_id, word, fuzzy: fuzzy || '0', page: '1', page_size: '100' }
     if (version_id) params.version_id = version_id
 
-    const data = await client.post('/language/language/get-string-search', params)
+    const data = await client.post('/language/mcp-language/get-string-search', params)
     if (data.errno !== 0) {
       return { content: [{ type: 'text', text: `错误: ${data.message || JSON.stringify(data)}` }] }
     }
