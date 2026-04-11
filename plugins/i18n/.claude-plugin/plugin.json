@@ -1,8 +1,0 @@
-{
-  "name": "i18n",
-  "description": "CamScanner multi-language string integration plugin. Search, export, and write locale strings via MCP language server.",
-  "version": "1.1.0",
-  "author": {
-    "name": "CamScanner"
-  }
-}
