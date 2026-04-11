@@ -268,11 +268,21 @@ server.tool('write-locales', '搜索多语言字符串并直接写入项目的 l
             results.push(`${localeName}.json: 无变化 (${Object.keys(newEntries).length} 条已存在)`);
         }
     }
+    // Detect local locale files that got no remote data
+    const localLocaleNames = fs_1.default.readdirSync(locales_path)
+        .filter(f => f.endsWith('.json'))
+        .map(f => f.replace('.json', ''));
+    const missingLocales = (0, utils_js_1.findMissingLocales)(localLocaleNames, Object.keys(allStrings));
     let output = `写入完成!\n`;
     output += `- 目录: ${locales_path}\n`;
     output += `- 写入 ${filesWritten} 个文件, 跳过 ${filesSkipped} 个 (项目中不存在)\n`;
     output += `- 共 ${totalKeys} 条字符串\n\n`;
     output += results.map(r => `  ${r}`).join('\n');
+    if (missingLocales.length > 0) {
+        output += `\n\n⚠️ 以下 ${missingLocales.length} 个本地语言文件未获得远程翻译，未被更新:\n`;
+        output += missingLocales.map(name => `  - ${name}.json`).join('\n');
+        output += `\n请确认远程平台是否已为这些语言提供翻译。`;
+    }
     return { content: [{ type: 'text', text: output }] };
 });
 // --- Start ---

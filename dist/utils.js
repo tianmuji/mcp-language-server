@@ -5,6 +5,7 @@ exports.LANGUAGE_LOCALE_MAP = exports.PLATFORM_MAP = void 0;
 exports.fixPlaceholders = fixPlaceholders;
 exports.extractStrings = extractStrings;
 exports.mergeLocaleEntries = mergeLocaleEntries;
+exports.findMissingLocales = findMissingLocales;
 exports.PLATFORM_MAP = {
     1: 'Android',
     3: 'iOS',
@@ -98,4 +99,14 @@ function mergeLocaleEntries(existingObj, newEntries) {
         merged['insert_before_this_line'] = insertMarker;
     }
     return { merged, keysAdded, keysUpdated };
+}
+/**
+ * 找出本地存在但远程未返回翻译的 locale 文件名。
+ * @param localLocaleNames 本地存在的 locale 名称列表（不含 .json 后缀），如 ['ZhCn', 'EnUs', 'JaJp']
+ * @param remoteLanguageIds 远程返回的语言 ID 列表，如 ['1', '2']
+ * @returns 本地存在但远程无数据的 locale 名称列表
+ */
+function findMissingLocales(localLocaleNames, remoteLanguageIds) {
+    const remoteLocaleNames = new Set(remoteLanguageIds.map(id => exports.LANGUAGE_LOCALE_MAP[id]).filter(Boolean));
+    return localLocaleNames.filter(name => !remoteLocaleNames.has(name));
 }

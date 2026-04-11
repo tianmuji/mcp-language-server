@@ -3,6 +3,7 @@ import {
   fixPlaceholders,
   extractStrings,
   mergeLocaleEntries,
+  findMissingLocales,
   PLATFORM_MAP,
   LANGUAGE_LOCALE_MAP,
 } from './utils'
@@ -243,6 +244,67 @@ describe('mergeLocaleEntries', () => {
     mergeLocaleEntries(existing, { a: '2', b: '3' })
 
     expect(existing).toEqual({ a: '1' })
+  })
+})
+
+// --- findMissingLocales ---
+
+describe('findMissingLocales', () => {
+  it('returns locales that exist locally but have no remote data', () => {
+    const local = ['ZhCn', 'EnUs', 'JaJp', 'KoKr']
+    const remoteIds = ['1', '2'] // ZhCn, EnUs
+    const missing = findMissingLocales(local, remoteIds)
+
+    expect(missing).toEqual(['JaJp', 'KoKr'])
+  })
+
+  it('returns empty when all local files have remote data', () => {
+    const local = ['ZhCn', 'EnUs']
+    const remoteIds = ['1', '2']
+
+    expect(findMissingLocales(local, remoteIds)).toEqual([])
+  })
+
+  it('returns all local files when remote has no data', () => {
+    const local = ['ZhCn', 'EnUs']
+    const remoteIds: string[] = []
+
+    expect(findMissingLocales(local, remoteIds)).toEqual(['ZhCn', 'EnUs'])
+  })
+
+  it('ignores local files not in LANGUAGE_LOCALE_MAP (e.g. custom files)', () => {
+    const local = ['ZhCn', 'EnUs', 'CustomLang']
+    const remoteIds = ['1', '2']
+    const missing = findMissingLocales(local, remoteIds)
+
+    // CustomLang is not in LANGUAGE_LOCALE_MAP, so it's not a "missing translation"
+    // it should still appear because it's local but not matched
+    expect(missing).toEqual(['CustomLang'])
+  })
+
+  it('handles remote language IDs not in LANGUAGE_LOCALE_MAP', () => {
+    const local = ['ZhCn']
+    const remoteIds = ['1', '999'] // 999 is unknown
+    const missing = findMissingLocales(local, remoteIds)
+
+    expect(missing).toEqual([])
+  })
+
+  it('works with large set of locales', () => {
+    // Simulate a real project with 26 locale files but remote only returns 3 languages
+    const local = [
+      'ZhCn', 'EnUs', 'JaJp', 'KoKr', 'FrFr', 'DeDe', 'ZhTw',
+      'PtBr', 'EsEs', 'ItIt', 'RuRu', 'TrTr', 'ArSa',
+    ]
+    const remoteIds = ['1', '2', '7'] // ZhCn, EnUs, ZhTw
+    const missing = findMissingLocales(local, remoteIds)
+
+    expect(missing).toHaveLength(10)
+    expect(missing).toContain('JaJp')
+    expect(missing).toContain('KoKr')
+    expect(missing).not.toContain('ZhCn')
+    expect(missing).not.toContain('EnUs')
+    expect(missing).not.toContain('ZhTw')
   })
 })
 

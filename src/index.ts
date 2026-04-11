@@ -8,7 +8,7 @@ import path from 'path'
 import { OperateClient } from './operate-client.js'
 import { loadCredentials, saveCredentials, clearCredentials, startSsoLogin } from './auth.js'
 import type { OperateCredentials } from './operate-client.js'
-import { PLATFORM_MAP, LANGUAGE_LOCALE_MAP, fixPlaceholders, extractStrings, mergeLocaleEntries } from './utils.js'
+import { PLATFORM_MAP, LANGUAGE_LOCALE_MAP, fixPlaceholders, extractStrings, mergeLocaleEntries, findMissingLocales } from './utils.js'
 
 // --- Config from env ---
 const OPERATE_BASE_URL = process.env.OPERATE_BASE_URL
@@ -339,11 +339,23 @@ server.tool(
       }
     }
 
+    // Detect local locale files that got no remote data
+    const localLocaleNames = fs.readdirSync(locales_path)
+      .filter(f => f.endsWith('.json'))
+      .map(f => f.replace('.json', ''))
+    const missingLocales = findMissingLocales(localLocaleNames, Object.keys(allStrings))
+
     let output = `写入完成!\n`
     output += `- 目录: ${locales_path}\n`
     output += `- 写入 ${filesWritten} 个文件, 跳过 ${filesSkipped} 个 (项目中不存在)\n`
     output += `- 共 ${totalKeys} 条字符串\n\n`
     output += results.map(r => `  ${r}`).join('\n')
+
+    if (missingLocales.length > 0) {
+      output += `\n\n⚠️ 以下 ${missingLocales.length} 个本地语言文件未获得远程翻译，未被更新:\n`
+      output += missingLocales.map(name => `  - ${name}.json`).join('\n')
+      output += `\n请确认远程平台是否已为这些语言提供翻译。`
+    }
 
     return { content: [{ type: 'text', text: output }] }
   }
