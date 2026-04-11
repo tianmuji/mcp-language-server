@@ -116,73 +116,54 @@ const PRODUCT_MAP = {
   53: "CS Harmony",
 };
 
-// 语言ID → locale 文件名映射（兼容 cs-i18n 工具）
-// 映射关系通过 export-string 导出翻译值反推校验确认
-const LANGUAGE_LOCALE_MAP = {
-  "1": "ZhCn",    // 简体中文
-  "2": "EnUs",    // 英语
-  "3": "DeDe",    // 德语
-  "4": "FrFr",    // 法语
-  "5": "JaJp",    // 日语
-  "6": "KoKr",    // 韩语
-  "7": "ZhTw",    // 繁体中文
-  "8": "PtBr",    // 巴西葡萄牙语
-  "9": "RuRu",    // 俄语
-  "10": "SkSk",   // 斯洛伐克语
-  "11": "CsCs",   // 捷克语
-  "12": "EsEs",   // 西班牙语
-  "13": "PlPl",   // 波兰语
-  "14": "ItIt",   // 意大利语
-  "15": "TrTr",   // 土耳其语
-  "16": "ArSa",   // 阿拉伯语
-  "17": "PtPt",   // 葡萄牙语
-  "20": "FiFi",   // 芬兰语
-  "22": "MsMy",   // 马来语
-  "23": "Th",     // 泰语
-  "24": "FilPh",  // 菲律宾语
-  "25": "InId",   // 印度尼西亚语
-  "26": "ViVn",   // 越南语
-  "27": "BnBd",   // 孟加拉语
-  "28": "FaIr",   // 波斯语
-  "29": "HiDi",   // 印地语
-  "30": "NlNl",   // 荷兰语
-  "31": "ElEl",   // 希腊语
-  "32": "HuHu",   // 匈牙利语
-  "33": "UkUa",   // 乌克兰语
-  "34": "NoNo",   // 挪威语
-  "35": "DaDk",   // 丹麦语
-  "36": "UrPk",   // 乌尔都语
-  "37": "HrHr",   // 克罗地亚语
-  "38": "HyAm",   // 亚美尼亚语
-  "39": "BgBg",   // 保加利亚语
-  "40": "SiLk",   // 僧伽罗语
-  "41": "IsIs",   // 冰岛语
-  "42": "KkKz",   // 哈萨克语
-  "43": "SrRs",   // 塞尔维亚语
-  "44": "NeNp",   // 尼泊尔语
-  "45": "LvLv",   // 拉脱维亚语
-  "46": "SlSi",   // 斯洛文尼亚语
-  "47": "SwKe",   // 斯瓦希里语
-  "48": "KaGe",   // 格鲁吉亚语
-  "49": "EtEe",   // 爱沙尼亚语
-  "50": "SvSe",   // 瑞典语
-  "53": "LtLt",   // 立陶宛语
-  "54": "MyMm",   // 缅甸语
-  "55": "RoRo",   // 罗马尼亚语
-  "56": "LoLa",   // 老挝语
-  "57": "MnMn",   // 蒙古语
-  "58": "AzAz",   // 阿塞拜疆语
-  "60": "SqAl",   // 阿尔巴尼亚语
-  "61": "MkMk",   // 马其顿语
-  "68": "IwIl",   // 希伯来语
-  "70": "KyKg",   // 吉尔吉斯语
-  "76": "KmKh",   // 高棉语
-  "77": "BsBa",   // 波斯尼亚语
-  "78": "LbLu",   // 卢森堡语
-  "79": "RwRw",   // 卢旺达语
-  "80": "MtMt",   // 马耳他语
-  "81": "UzUz",   // 乌兹别克语
+// 语言ID → locale 字符串映射（从 operate-main AppConfMacro::$ar_language_map 复制）
+const LANGUAGE_STRING_MAP = {
+  1: "zh-cn",   2: "en-us",   3: "de-de",   4: "fr-fr",
+  5: "ja-jp",   6: "ko-kr",   7: "zh-tw",   8: "es-es",
+  9: "ru-ru",  10: "sk-sk",  11: "cs-cs",  12: "pt-pt",
+  13: "pl-pl",  14: "it-it",  15: "tr-tr",  16: "ar-ar",
+  17: "pt-br",  19: "ag-ag",  20: "sm-sm",  22: "id-id",
+  23: "th-th",  24: "fil-ph", 25: "ms-my",  26: "vi-vn",
+  27: "bn-bd",  28: "fa-ir",  29: "hi-in",  30: "nl-nl",
+  31: "el-gr",  32: "hu-hu",  33: "uk-ua",  34: "no-no",
+  35: "da-dk",  36: "ur-pk",  37: "hr-hr",  38: "hy-am",
+  39: "bg-bg",  40: "si-lk",  41: "is-is",  42: "kk-kz",
+  43: "sr-rs",  44: "ne-np",  45: "lv-lv",  46: "sl-si",
+  47: "sw-ke",  48: "ka-ge",  49: "et-ee",  50: "sv-se",
+  51: "be-by",  52: "zu-za",  53: "lt-lt",  54: "my-mm",
+  55: "ro-ro",  56: "lo-la",  57: "mn-mn",  58: "az-az",
+  59: "am-et",  60: "sq-al",  61: "mk-mk",  62: "gl-es",
+  63: "ca-es",  64: "af-za",  65: "kn-in",  66: "gu-in",
+  67: "eu-es",  68: "iw-il",  69: "pa-in",  70: "ky-kg",
+  71: "te-in",  72: "ta-in",  73: "rm-ch",  74: "mr-in",
+  75: "ml-in",  76: "km-kh",  77: "bs-ba",  78: "lb-lu",
+  79: "rw-rw",  80: "mt-mt",  81: "uz-uz",  82: "ga-ie",
 };
+
+// locale 字符串 → PascalCase 文件名（从 operate-main MacroExport::filter2 复制）
+// 'zh-cn' → 'ZhCn', 'fil-ph' → 'FilPh'
+function toLocaleName(localeStr) {
+  return localeStr.split("-").map(s => s.charAt(0).toUpperCase() + s.slice(1)).join("");
+}
+
+// 特殊映射：项目 locale 文件名与 filter2 输出不一致的语言
+const LOCALE_NAME_OVERRIDE = {
+  16: "ArSa",   // filter2: ArAr → 实际: ArSa
+  20: "FiFi",   // filter2: SmSm → 实际: FiFi (芬兰语)
+  22: "InId",   // filter2: IdId → 实际: InId (印尼语)
+  23: "Th",     // filter2: ThTh → 实际: Th (泰语)
+  29: "HiDi",   // filter2: HiIn → 实际: HiDi (印地语)
+  31: "ElEl",   // filter2: ElGr → 实际: ElEl (希腊语)
+};
+
+// 获取 locale 文件名（优先用 override，否则 filter2 动态生成）
+function getLocaleName(langId) {
+  const id = Number(langId);
+  if (LOCALE_NAME_OVERRIDE[id]) return LOCALE_NAME_OVERRIDE[id];
+  const localeStr = LANGUAGE_STRING_MAP[id];
+  if (!localeStr) return null;
+  return toLocaleName(localeStr);
+}
 
 // %s → {0}, {1}, {2}... 替换
 function fixPlaceholders(value) {
@@ -497,7 +478,7 @@ function registerTools(server) {
             content: [{ type: "text", text: `找到字符串但语言ID=${language_id} 无翻译内容` }],
           };
         }
-        const localeName = LANGUAGE_LOCALE_MAP[language_id] || `lang_${language_id}`;
+        const localeName = getLocaleName(language_id) || `lang_${language_id}`;
         const json = JSON.stringify(localeObj, null, 2);
         return {
           content: [{
@@ -510,7 +491,7 @@ function registerTools(server) {
       // 全部语言导出
       let output = `共匹配 ${Object.keys(allStrings).length} 种语言:\n\n`;
       for (const [langId, localeObj] of Object.entries(allStrings)) {
-        const localeName = LANGUAGE_LOCALE_MAP[langId] || `lang_${langId}`;
+        const localeName = getLocaleName(langId) || `lang_${langId}`;
         const json = JSON.stringify(localeObj, null, 2);
         output += `### ${localeName}.json (语言ID=${langId}, ${Object.keys(localeObj).length} 条)\n\`\`\`json\n${json}\n\`\`\`\n\n`;
       }
@@ -577,7 +558,7 @@ function registerTools(server) {
       let filesSkipped = 0;
 
       for (const [langId, newEntries] of Object.entries(allStrings)) {
-        const localeName = LANGUAGE_LOCALE_MAP[langId];
+        const localeName = getLocaleName(langId);
         if (!localeName) {
           filesSkipped++;
           continue;
