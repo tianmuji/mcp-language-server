@@ -1,4 +1,5 @@
 export declare const PLATFORM_MAP: Record<number, string>;
+export declare function getLocaleName(langId: string | number): string | null;
 export declare const LANGUAGE_LOCALE_MAP: Record<string, string>;
 export declare function fixPlaceholders(value: string): string;
 export declare function extractStrings(versions: any[], platformId: string): Record<string, Record<string, string>>;

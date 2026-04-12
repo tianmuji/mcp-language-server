@@ -2,6 +2,7 @@
 // --- Constants ---
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.LANGUAGE_LOCALE_MAP = exports.PLATFORM_MAP = void 0;
+exports.getLocaleName = getLocaleName;
 exports.fixPlaceholders = fixPlaceholders;
 exports.extractStrings = extractStrings;
 exports.mergeLocaleEntries = mergeLocaleEntries;
@@ -15,35 +16,54 @@ exports.PLATFORM_MAP = {
     8: 'Harmony',
     9: 'PC',
 };
-exports.LANGUAGE_LOCALE_MAP = {
-    '1': 'ZhCn',
-    '2': 'EnUs',
-    '3': 'JaJp',
-    '4': 'KoKr',
-    '5': 'FrFr',
-    '6': 'DeDe',
-    '7': 'ZhTw',
-    '8': 'PtBr',
-    '9': 'EsEs',
-    '10': 'ItIt',
-    '11': 'RuRu',
-    '12': 'TrTr',
-    '13': 'ArSa',
-    '14': 'ThTh',
-    '15': 'PlPl',
-    '16': 'ViVn',
-    '17': 'InId',
-    '19': 'MsMy',
-    '20': 'NlNl',
-    '22': 'HiDi',
-    '23': 'BnBd',
-    '24': 'CsCs',
-    '25': 'SkSk',
-    '26': 'FilPh',
-    '27': 'ElEl',
-    '28': 'PtPt',
-    '29': 'RoRo',
+// 语言ID → locale 字符串映射（从 operate-main AppConfMacro::$ar_language_map 复制）
+const LANGUAGE_STRING_MAP = {
+    1: 'zh-cn', 2: 'en-us', 3: 'de-de', 4: 'fr-fr',
+    5: 'ja-jp', 6: 'ko-kr', 7: 'zh-tw', 8: 'es-es',
+    9: 'ru-ru', 10: 'sk-sk', 11: 'cs-cs', 12: 'pt-pt',
+    13: 'pl-pl', 14: 'it-it', 15: 'tr-tr', 16: 'ar-ar',
+    17: 'pt-br', 19: 'ag-ag', 20: 'sm-sm', 22: 'id-id',
+    23: 'th-th', 24: 'fil-ph', 25: 'ms-my', 26: 'vi-vn',
+    27: 'bn-bd', 28: 'fa-ir', 29: 'hi-in', 30: 'nl-nl',
+    31: 'el-gr', 32: 'hu-hu', 33: 'uk-ua', 34: 'no-no',
+    35: 'da-dk', 36: 'ur-pk', 37: 'hr-hr', 38: 'hy-am',
+    39: 'bg-bg', 40: 'si-lk', 41: 'is-is', 42: 'kk-kz',
+    43: 'sr-rs', 44: 'ne-np', 45: 'lv-lv', 46: 'sl-si',
+    47: 'sw-ke', 48: 'ka-ge', 49: 'et-ee', 50: 'sv-se',
+    51: 'be-by', 52: 'zu-za', 53: 'lt-lt', 54: 'my-mm',
+    55: 'ro-ro', 56: 'lo-la', 57: 'mn-mn', 58: 'az-az',
+    59: 'am-et', 60: 'sq-al', 61: 'mk-mk', 62: 'gl-es',
+    63: 'ca-es', 64: 'af-za', 65: 'kn-in', 66: 'gu-in',
+    67: 'eu-es', 68: 'iw-il', 69: 'pa-in', 70: 'ky-kg',
+    71: 'te-in', 72: 'ta-in', 73: 'rm-ch', 74: 'mr-in',
+    75: 'ml-in', 76: 'km-kh', 77: 'bs-ba', 78: 'lb-lu',
+    79: 'rw-rw', 80: 'mt-mt', 81: 'uz-uz', 82: 'ga-ie',
 };
+// locale 字符串 → PascalCase 文件名（从 operate-main MacroExport::filter2 复制）
+function toLocaleName(localeStr) {
+    return localeStr.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('');
+}
+// 特殊映射：项目 locale 文件名与 filter2 输出不一致的语言
+const LOCALE_NAME_OVERRIDE = {
+    16: 'ArSa', // filter2: ArAr → 实际: ArSa
+    20: 'FiFi', // filter2: SmSm → 实际: FiFi (芬兰语)
+    22: 'InId', // filter2: IdId → 实际: InId (印尼语)
+    23: 'Th', // filter2: ThTh → 实际: Th (泰语)
+    29: 'HiDi', // filter2: HiIn → 实际: HiDi (印地语)
+    31: 'ElEl', // filter2: ElGr → 实际: ElEl (希腊语)
+};
+// 获取 locale 文件名（优先用 override，否则 filter2 动态生成）
+function getLocaleName(langId) {
+    const id = Number(langId);
+    if (LOCALE_NAME_OVERRIDE[id])
+        return LOCALE_NAME_OVERRIDE[id];
+    const localeStr = LANGUAGE_STRING_MAP[id];
+    if (!localeStr)
+        return null;
+    return toLocaleName(localeStr);
+}
+// 兼容旧接口：动态生成完整映射表
+exports.LANGUAGE_LOCALE_MAP = Object.fromEntries(Object.keys(LANGUAGE_STRING_MAP).map(id => [String(id), getLocaleName(id)]).filter(([, v]) => v));
 // --- Helpers ---
 function fixPlaceholders(value) {
     let cnt = 0;
