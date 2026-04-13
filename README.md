@@ -37,6 +37,27 @@ claude plugin install i18n@camscanner-plugins
 - 浏览器数据持久化在 `~/.language-mcp/browser-data/`，保存的密码下次自动填充
 - 认证信息保存在 `~/.language-mcp/credentials.json`，有效期 24 小时
 
+## 开发者指南
+
+### 发布新版本
+
+```bash
+# 1. 修改代码并构建
+npm run build
+
+# 2. 更新版本号并发布到 npm
+npm version patch   # bug fix: 1.0.0 → 1.0.1
+npm version minor   # 新功能: 1.0.0 → 1.1.0
+npm version major   # 破坏性变更: 1.0.0 → 2.0.0
+
+npm publish --registry https://registry.npmjs.org/ --access public
+
+# 3. 推送 tag 到远端
+git push && git push --tags
+```
+
+用户下次启动 Claude Code 时，`npx -y @camscanner/mcp-language-server@latest` 会自动拉取新版本。
+
 ## 常用产品 ID
 
 | ID | 产品 |
