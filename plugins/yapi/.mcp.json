@@ -1,7 +1,7 @@
 {
   "yapi": {
     "command": "npx",
-    "args": ["-y", "git+https://gitlab.intsig.net/cs-templates/skills/yapi-mcp-server.git"],
+    "args": ["-y", "@camscanner/yapi-mcp-server@latest"],
     "env": {
       "YAPI_BASE_URL": "https://web-api.intsig.net",
       "SSO_LOGIN_URL": "https://web-sso.intsig.net/login",

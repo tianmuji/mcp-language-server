@@ -1,5 +1,5 @@
 {
-  "name": "mcp-language-server",
+  "name": "@camscanner/mcp-language-server",
   "version": "1.0.0",
   "description": "MCP Server for multi-language string management",
   "main": "dist/index.js",

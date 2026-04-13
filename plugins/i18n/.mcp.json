@@ -1,7 +1,7 @@
 {
   "language": {
     "command": "npx",
-    "args": ["-y", "git+https://github.com/tianmuji/mcp-language-server.git"],
+    "args": ["-y", "@camscanner/mcp-language-server@latest"],
     "env": {
       "OPERATE_BASE_URL": "https://operate.intsig.net",
       "SSO_LOGIN_URL": "https://web-sso.intsig.net/login",
