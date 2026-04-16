@@ -31,6 +31,7 @@ disable-model-invocation: false
 1. **不假设任何项目配置** — 不要硬编码 product_id、platform_id 或 locale 路径
 2. **先了解再实现** — 先检测项目环境，再操作
 3. **不确定就问** — 产品、平台、版本不确定时，询问用户
+4. **禁止手动修改 locales 文件** — 绝对不允许使用 Edit、Write 等工具直接修改 locales 目录下的任何文件（如 `ZhCn.json`、`EnUs.json`、`zh-CN.json` 等语言文件）。所有对 locale 文件的写入操作**必须且只能**通过 `write-locales` MCP 工具完成。这是为了确保多语言字符串的一致性和可追溯性。
 
 ## 工作流程
 
@@ -102,11 +103,14 @@ disable-model-invocation: false
 
 ### 第 5 步：写入本地 & 替换代码
 
+> **⚠️ 重要：禁止使用 Edit / Write 工具修改 locales 目录下的任何文件。必须使用 `write-locales` 工具写入。**
+
 1. 检查本地是否已有该 key
-2. 如果没有：使用 `write-locales` 写入
+2. 如果没有：使用 `write-locales` 写入（**这是唯一允许的写入方式**）
    - `locales_path` 使用第 1 步检测到的 `LOCALES_DIR` **绝对路径**
    - `product_id` 使用第 0 步确认的值
    - `platform_id` 使用第 0 步确认的值
    - **默认精确匹配** (`fuzzy: "0"`)
    - 搜索词优先使用 **key 名**（尤其是带参数的字符串）
 3. 替换代码中的硬编码字符串为 i18n 调用，**遵循第 2 步中了解到的现有代码风格**
+4. **永远不要**手动编辑 locale JSON 文件来添加、删除或修改翻译 key
