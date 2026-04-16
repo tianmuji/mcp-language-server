@@ -3,6 +3,7 @@ name: i18n
 description: "多语言字符串集成助手。当用户要求集成、查询、替换多语言字符串时触发，或用户提到 i18n、多语言、$t、国际化、翻译等关键词时触发。"
 argument-hint: <要集成的中文字符串>
 disable-model-invocation: false
+allowed-tools: ["mcp__plugin_i18n_language__*"]
 ---
 
 # 多语言字符串集成助手
