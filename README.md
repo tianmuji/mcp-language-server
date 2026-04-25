@@ -37,6 +37,20 @@ claude plugin install i18n@camscanner-plugins
 - 浏览器数据持久化在 `~/.language-mcp/browser-data/`，保存的密码下次自动填充
 - 认证信息保存在 `~/.language-mcp/credentials.json`，有效期 24 小时
 
+## 使用示例
+
+```
+> 帮我集成「删除文档」的多语言
+> 搜索 cs_519b 开头的所有 key
+> 将 cs_xxx_1 写入项目的 locales 目录
+```
+
+## 注意事项
+
+- **禁止手动编辑 locale JSON 文件**，所有写入操作必须通过 `write-locales` 工具完成
+- 带参数的字符串（如 `已选择{0}条`）建议用 key 名搜索，不要用中文值精确搜索
+- 不同产品和平台的字符串 key 可能不同，使用前先确认 product_id 和 platform_id
+
 ## 开发者指南
 
 ### 发布新版本
