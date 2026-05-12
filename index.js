@@ -11,7 +11,7 @@ import nodePath from "node:path";
 import { execSync, exec } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { URL } from "node:url";
-import { startSsoLogin, createCredentialsManager } from "mcp-sso-auth";
+import { startSsoLogin, createCredentialsManager } from "@camscanner/mcp-sso-auth";
 
 // 脚本所在目录
 const __dirname = nodePath.dirname(fileURLToPath(import.meta.url));
