@@ -7,22 +7,25 @@ import type { OperateCredentials } from './operate-client.js'
 // Environment configuration
 const SSO_LOGIN_URL = process.env.SSO_LOGIN_URL || 'https://web-sso.intsig.net/login'
 const SSO_PLATFORM_ID = process.env.SSO_PLATFORM_ID || 'OdliDeAnVtlUA5cGwwxZPHUyXtqPCcNw'
-const SSO_CALLBACK_DOMAIN = process.env.SSO_CALLBACK_DOMAIN || 'https://www-sandbox.camscanner.com/activity/mcp-auth-callback'
+const SSO_CALLBACK_DOMAIN = process.env.SSO_CALLBACK_DOMAIN || 'https://operate.intsig.net/camscanner/mcp-auth/callback'
 const SSO_CALLBACK_PORT = parseInt(process.env.SSO_CALLBACK_PORT || '9881', 10)
 const OPERATE_BASE_URL = process.env.OPERATE_BASE_URL || 'https://operate.intsig.net'
 
 const credentialsManager = createCredentialsManager('language-mcp')
 
-/** Fetch session cookies and CSRF token from operate platform using sso_token */
-function fetchSessionInfo(baseUrl: string, ssoToken: string): Promise<{ sessionCookie: string; csrfToken: string }> {
+/** Fetch session cookies and CSRF token from operate platform using sso_token + st cookie */
+function fetchSessionInfo(baseUrl: string, ssoToken: string, stCookie?: string): Promise<{ sessionCookie: string; csrfToken: string }> {
   return new Promise((resolve, reject) => {
     const url = new URL(baseUrl + '/site/get-config')
     const mod = url.protocol === 'https:' ? https : http
 
+    const cookieParts = [`sso_token=${ssoToken}`]
+    if (stCookie) cookieParts.push(`st=${stCookie}`)
+
     const options = {
       timeout: 10000,
       headers: {
-        Cookie: `sso_token=${ssoToken}`,
+        Cookie: cookieParts.join('; '),
         'x-requested-with': 'XMLHttpRequest',
       },
     }
@@ -37,6 +40,7 @@ function fetchSessionInfo(baseUrl: string, ssoToken: string): Promise<{ sessionC
         }
       }
       cookiePairs.push(`sso_token=${ssoToken}`)
+      if (stCookie) cookiePairs.push(`st=${stCookie}`)
       const sessionCookie = cookiePairs.join('; ')
 
       let body = ''
@@ -83,8 +87,9 @@ export async function startSsoLogin(config: SsoConfig): Promise<OperateCredentia
     callbackDomain: SSO_CALLBACK_DOMAIN,
     callbackPort: SSO_CALLBACK_PORT,
     serverName: 'Language MCP Server',
-    async exchangeToken(ssoToken: string) {
-      const { sessionCookie, csrfToken } = await fetchSessionInfo(baseUrl, ssoToken)
+    async exchangeToken(ssoToken: string, extraParams?: Record<string, string>) {
+      const stCookie = extraParams?.st ? Buffer.from(extraParams.st, 'base64').toString('utf-8') : undefined
+      const { sessionCookie, csrfToken } = await fetchSessionInfo(baseUrl, ssoToken, stCookie)
       const result: OperateCredentials = {
         ssoToken,
         sessionCookie,
